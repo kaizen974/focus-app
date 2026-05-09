@@ -161,15 +161,8 @@ export default function FocusApp() {
   const [showExtendChoice, setShowExtendChoice] = useState(false);
   const [extendMinutes, setExtendMinutes] = useState(30);
   const lastEndedRef = useRef(new Set()); // tasks already proposed
-
-  // === VISUALIZATION SETUP (before starting the day) ===
-  const [showVisualizationSetup, setShowVisualizationSetup] = useState(false);
-  const [visMinutes, setVisMinutes] = useState(2); // 1, 2 or 3 minutes
-  const [visMode, setVisMode] = useState(null); // 'music' | 'guided'
-  const [visMusicId, setVisMusicId] = useState(null); // chosen custom track
-  const [visGuidedId, setVisGuidedId] = useState(null); // chosen meditation
-  const [visualizationActive, setVisualizationActive] = useState(false);
-  const [visTimeLeft, setVisTimeLeft] = useState(0);
+  const popupOpenedAtRef = useRef(null); // timestamp when popup was opened (to calc response delay)
+  const popupTriggerKindRef = useRef(null); // 'natural' | 'manual' — only natural-end pauses the day
 
   // === NO-TASKS WARNING ===
   const [showNoTasksWarning, setShowNoTasksWarning] = useState(false);
@@ -286,40 +279,9 @@ export default function FocusApp() {
     return () => clearInterval(id);
   }, [isRunning, demoMode]);
 
-  // === Visualization countdown ===
-  useEffect(() => {
-    if (!visualizationActive) return;
-    if (visTimeLeft <= 0) {
-      // Visualization finished → start the day
-      setVisualizationActive(false);
-      setIsRunning(true);
-      if (demoMode) setDemoElapsed(0);
-      notifiedRef.current.clear();
-      return;
-    }
-    const id = setInterval(() => setVisTimeLeft((s) => s - 1), 1000);
-    return () => clearInterval(id);
-  }, [visualizationActive, visTimeLeft]);
-
-  // Start visualization session: chosen mode + duration
-  const beginVisualization = () => {
-    if (!visMode) return;
-    if (visMode === "music" && !visMusicId) return;
-    if (visMode === "guided" && !visGuidedId) return;
-    setShowVisualizationSetup(false);
-    setVisTimeLeft(visMinutes * 60);
-    setVisualizationActive(true);
-
-    // Auto-play the chosen music if 'music' mode
-    if (visMode === "music") {
-      setActiveAmbient(null);
-      setActiveCustomTrack(visMusicId);
-    }
-  };
-
-  // Skip the visualization and start immediately
-  const skipVisualization = () => {
-    setVisualizationActive(false);
+  // Start the day directly (no more visualization)
+  const startDay = () => {
+    setNow(new Date());
     setIsRunning(true);
     if (demoMode) setDemoElapsed(0);
     notifiedRef.current.clear();
@@ -402,6 +364,9 @@ export default function FocusApp() {
       const prog = getTaskProgress(task);
       if (prog >= 100 && !lastEndedRef.current.has(task.id) && !dayCompletions[task.id]) {
         lastEndedRef.current.add(task.id);
+        // Mark the moment the popup opens so we can shift later tasks by the response delay
+        popupOpenedAtRef.current = Date.now();
+        popupTriggerKindRef.current = "natural";
         setEndTaskPopup(task);
       }
     });
@@ -538,6 +503,35 @@ export default function FocusApp() {
   // ============================================================
   // === END-OF-TASK ACTIONS ===
   // ============================================================
+
+  // When user finally responds to a natural-end popup, calculate how long they took
+  // and shift all upcoming tasks by that delay so nothing runs in the background.
+  const shiftUpcomingByResponseDelay = (endedTaskId) => {
+    if (popupTriggerKindRef.current !== "natural" || !popupOpenedAtRef.current) return;
+    const delaySec = Math.floor((Date.now() - popupOpenedAtRef.current) / 1000);
+    popupOpenedAtRef.current = null;
+    popupTriggerKindRef.current = null;
+    if (delaySec <= 0) return;
+
+    // Round up to the next minute for clean times
+    const delayMin = Math.ceil(delaySec / 60);
+    const sorted = [...tasks].sort((a, b) => toMin(a.start) - toMin(b.start));
+    const idx = sorted.findIndex(t => t.id === endedTaskId);
+    if (idx === -1) return;
+
+    const updated = sorted.map((t, i) => {
+      if (i <= idx) return t; // ended task stays as-is
+      return {
+        ...t,
+        start: fromMin(toMin(t.start) + delayMin),
+        end: fromMin(toMin(t.end) + delayMin),
+      };
+    });
+    setTasks(updated);
+    // Allow re-detection on next natural end of subsequent tasks
+    sorted.slice(idx + 1).forEach(t => lastEndedRef.current.delete(t.id));
+  };
+
   const markTaskDone = (taskId) => {
     setCompletions({
       ...completions,
@@ -548,6 +542,7 @@ export default function FocusApp() {
       setValidationBurst({ color: task.color, ts: Date.now() });
       setTimeout(() => setValidationBurst(null), 1800);
     }
+    shiftUpcomingByResponseDelay(taskId);
     setEndTaskPopup(null);
     setShowExtendChoice(false);
   };
@@ -557,22 +552,36 @@ export default function FocusApp() {
       ...completions,
       [selectedDay]: { ...dayCompletions, [taskId]: "skipped" },
     });
+    shiftUpcomingByResponseDelay(taskId);
     setEndTaskPopup(null);
     setShowExtendChoice(false);
   };
 
   const extendTask = (task, minutesToAdd) => {
-    // Push back this task's end time AND every following task by `minutesToAdd`
+    // If the popup was triggered naturally, include the response delay too
+    let delayMin = 0;
+    if (popupTriggerKindRef.current === "natural" && popupOpenedAtRef.current) {
+      const delaySec = Math.floor((Date.now() - popupOpenedAtRef.current) / 1000);
+      delayMin = Math.ceil(delaySec / 60);
+    }
+    popupOpenedAtRef.current = null;
+    popupTriggerKindRef.current = null;
+
+    const totalShift = minutesToAdd + delayMin;
+
+    // Push back this task's end time AND every following task by `totalShift`
     const sorted = [...tasks].sort((a, b) => toMin(a.start) - toMin(b.start));
     const idx = sorted.findIndex(t => t.id === task.id);
     const updated = sorted.map((t, i) => {
       if (i < idx) return t;
-      if (i === idx) return { ...t, end: fromMin(toMin(t.end) + minutesToAdd) };
-      return { ...t, start: fromMin(toMin(t.start) + minutesToAdd), end: fromMin(toMin(t.end) + minutesToAdd) };
+      if (i === idx) return { ...t, end: fromMin(toMin(t.end) + totalShift) };
+      return { ...t, start: fromMin(toMin(t.start) + totalShift), end: fromMin(toMin(t.end) + totalShift) };
     });
     setTasks(updated);
     // Allow this task to trigger the popup again at its new end time
     lastEndedRef.current.delete(task.id);
+    // Allow re-detection of subsequent tasks too (their times changed)
+    sorted.slice(idx + 1).forEach(t => lastEndedRef.current.delete(t.id));
     setEndTaskPopup(null);
     setShowExtendChoice(false);
   };
@@ -618,6 +627,8 @@ export default function FocusApp() {
     setValidationBurst({ color: task.color, ts: Date.now() });
     setTimeout(() => setValidationBurst(null), 1800);
     lastEndedRef.current.add(task.id);
+    popupOpenedAtRef.current = null;
+    popupTriggerKindRef.current = null;
     setEndTaskPopup(null);
     setShowExtendChoice(false);
   };
@@ -845,104 +856,6 @@ export default function FocusApp() {
             Terminer la séance
           </button>
         </div>
-      </div>
-    );
-  }
-
-  // ============================================================
-  // === VISUALIZATION ACTIVE (fullscreen) ===
-  // ============================================================
-  if (visualizationActive) {
-    const accent = dayTheme.accent;
-    const guidedSession = visMode === "guided" ? MEDITATIONS.find(m => m.id === visGuidedId) : null;
-    const totalSec = visMinutes * 60;
-    const visProgress = totalSec > 0 ? ((totalSec - visTimeLeft) / totalSec) * 100 : 0;
-    const visMin = Math.floor(visTimeLeft / 60);
-    const visSec = visTimeLeft % 60;
-
-    // Rotating affirmations / guidance text
-    const guidanceTexts = [
-      "Visualisez votre journée idéale...",
-      "Imaginez chaque tâche se dérouler avec calme...",
-      "Vous êtes concentré, vous êtes serein...",
-      "Sentez l'énergie monter doucement...",
-      "Chaque respiration vous rapproche de votre objectif...",
-      "Vous avez tout ce qu'il faut pour réussir cette journée...",
-    ];
-    const guidanceIdx = Math.floor((totalSec - visTimeLeft) / 8) % guidanceTexts.length;
-
-    return (
-      <div className="fixed inset-0 bg-neutral-950 text-white flex flex-col items-center justify-center z-[80] overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
-        <div className="absolute inset-0 opacity-40 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full blur-3xl animate-pulse"
-            style={{ background: accent, animationDuration: "5s" }} />
-        </div>
-
-        <button onClick={skipVisualization}
-          className="absolute top-6 right-6 px-4 py-2 rounded-full bg-white/5 backdrop-blur border border-white/10 text-xs text-white/60 hover:text-white hover:bg-white/10 transition z-10">
-          Passer
-        </button>
-
-        <div className="relative z-10 text-center px-8 max-w-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-white/40 mb-4">
-            {visMode === "guided" ? "Visualisation guidée" : "Préparation mentale"}
-          </p>
-          <h2 className="text-3xl font-light mb-12">
-            {visMode === "guided" ? guidedSession?.name : "Visualisez votre journée"}
-          </h2>
-
-          {/* Big breathing circle */}
-          <div className="relative w-64 h-64 mx-auto mb-10">
-            {/* Animated breathing ring */}
-            <div className="absolute inset-0 rounded-full border-2 transition-all"
-              style={{
-                borderColor: accent + "70",
-                animation: "breath 8s ease-in-out infinite",
-                boxShadow: `0 0 40px ${accent}50, inset 0 0 40px ${accent}30`,
-              }} />
-            {/* Inner glow */}
-            <div className="absolute inset-6 rounded-full"
-              style={{
-                background: `radial-gradient(circle, ${accent}40 0%, transparent 70%)`,
-                animation: "breath 8s ease-in-out infinite",
-              }} />
-            {/* Progress ring */}
-            <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 256 256">
-              <circle cx="128" cy="128" r="120" stroke="rgba(255,255,255,0.05)" strokeWidth="2" fill="none" />
-              <circle cx="128" cy="128" r="120"
-                stroke={accent} strokeWidth="2" fill="none" strokeLinecap="round"
-                strokeDasharray={2 * Math.PI * 120}
-                strokeDashoffset={2 * Math.PI * 120 - (visProgress / 100) * 2 * Math.PI * 120}
-                style={{ transition: "stroke-dashoffset 1s linear",
-                  filter: `drop-shadow(0 0 8px ${accent})` }} />
-            </svg>
-            {/* Time in the center */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 mb-2">respirez</p>
-              <p className="text-5xl font-extralight font-mono tabular-nums" style={{ color: accent }}>
-                {String(visMin).padStart(2, "0")}:{String(visSec).padStart(2, "0")}
-              </p>
-            </div>
-          </div>
-
-          <p className="text-sm text-white/70 italic leading-relaxed min-h-[3em] transition-opacity duration-700">
-            "{guidanceTexts[guidanceIdx]}"
-          </p>
-
-          {visMode === "music" && visMusicId && (
-            <div className="mt-8 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10">
-              <Headphones size={12} className="text-white/60" />
-              <span className="text-xs text-white/70">
-                {customTracks.find(t => t.id === visMusicId)?.name}
-              </span>
-            </div>
-          )}
-        </div>
-
-        <p className="absolute bottom-12 text-xs text-white/30 tracking-widest uppercase">
-          La journée commence à la fin du compte à rebours
-        </p>
       </div>
     );
   }
@@ -1423,13 +1336,13 @@ export default function FocusApp() {
         <header className="flex items-start justify-between mb-8">
           <button
             onClick={() => {
-              const ts = Date.now();
-              if (ts - logoTapsRef.current.lastTap < 600) {
+              const now = Date.now();
+              if (now - logoTapsRef.current.lastTap < 600) {
                 logoTapsRef.current.count++;
               } else {
                 logoTapsRef.current.count = 1;
               }
-              logoTapsRef.current.lastTap = ts;
+              logoTapsRef.current.lastTap = now;
               if (logoTapsRef.current.count >= 5) {
                 logoTapsRef.current.count = 0;
                 toggleDemo();
@@ -1680,7 +1593,23 @@ export default function FocusApp() {
         )}
 
         {/* MAIN: only show the running ring when day is running */}
-        {isRunning && (
+        {isRunning && (() => {
+          // Calculate countdown to the next task if no task is currently active
+          let countdownSec = 0;
+          let totalWaitSec = 0;
+          if (!currentTask && nextTask) {
+            const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+            countdownSec = Math.max(0, Math.floor((toMin(nextTask.start) - nowMin) * 60));
+            // Total wait window — capped at 1 hour for visual reference (full ring at 1h+ wait)
+            totalWaitSec = Math.min(60 * 60, countdownSec + 1);
+          }
+          const countdownProgress = totalWaitSec > 0
+            ? Math.max(0, ((totalWaitSec - countdownSec) / totalWaitSec) * 100)
+            : 0;
+          const countdownOffset = circumference - (countdownProgress / 100) * circumference;
+          const accent = currentTask ? currentTask.color : (nextTask ? nextTask.color : dayTheme.accent);
+
+          return (
           <div className="flex flex-col items-center mb-12">
             <div className="relative w-72 h-72">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 280 280">
@@ -1689,6 +1618,16 @@ export default function FocusApp() {
                   <circle cx="140" cy="140" r={radius} stroke={currentTask.color} strokeWidth="3" fill="none"
                     strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeOffset}
                     style={{ transition: "stroke-dashoffset 1s linear, stroke 0.6s ease" }} />
+                )}
+                {/* Countdown ring (when waiting for next task) */}
+                {!currentTask && nextTask && !demoMode && (
+                  <circle cx="140" cy="140" r={radius} stroke={accent} strokeWidth="2" fill="none"
+                    strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={countdownOffset}
+                    style={{
+                      transition: "stroke-dashoffset 1s linear",
+                      filter: `drop-shadow(0 0 8px ${accent}80)`,
+                      opacity: 0.8,
+                    }} />
                 )}
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
@@ -1703,14 +1642,32 @@ export default function FocusApp() {
                       {demoMode ? "démo" : `${currentTask.start} → ${currentTask.end}`}
                     </p>
                   </>
-                ) : (
+                ) : demoMode ? (
+                  <>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-2">Journée terminée</p>
+                    <h2 className="text-2xl font-light text-white/60">Bravo 🎉</h2>
+                  </>
+                ) : nextTask ? (
                   <>
                     <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-2">
-                      {demoMode ? "Journée terminée" : "Aucune tâche active"}
+                      Votre journée commence dans
                     </p>
-                    <h2 className="text-2xl font-light text-white/60">
-                      {demoMode ? "Bravo 🎉" : "Pause"}
-                    </h2>
+                    <div className="text-5xl font-extralight font-mono tabular-nums tracking-tight"
+                      style={{ color: accent }}>
+                      {formatTime(countdownSec)}
+                    </div>
+                    <p className="text-sm text-white/60 mt-4">
+                      <span className="text-white/40">{nextTask.name} · </span>
+                      <span className="font-mono tabular-nums">{nextTask.start}</span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-2">Journée terminée</p>
+                    <h2 className="text-2xl font-light text-white/60">Bravo 🎉</h2>
+                    <p className="text-[11px] text-white/40 mt-3 px-4">
+                      Toutes les tâches sont passées
+                    </p>
                   </>
                 )}
               </div>
@@ -1730,7 +1687,8 @@ export default function FocusApp() {
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* TIMELINE */}
         <div className="mb-6 flex items-center justify-between">
@@ -1856,7 +1814,12 @@ export default function FocusApp() {
 
                       {/* Early-finish button — only on the current task */}
                       {isCurrent && !completion && (
-                        <button onClick={(e) => { e.stopPropagation(); setEndTaskPopup(task); }}
+                        <button onClick={(e) => {
+                            e.stopPropagation();
+                            popupOpenedAtRef.current = null; // manual = no auto-shift
+                            popupTriggerKindRef.current = "manual";
+                            setEndTaskPopup(task);
+                          }}
                           className="w-full py-2.5 rounded-xl border flex items-center justify-center gap-2 transition hover:scale-[1.01]"
                           style={{
                             background: task.color + "15",
@@ -1896,7 +1859,7 @@ export default function FocusApp() {
                 if (sortedTasks.length === 0) {
                   setShowNoTasksWarning(true);
                 } else {
-                  setShowVisualizationSetup(true);
+                  startDay();
                 }
               }}
               className="group relative w-full overflow-hidden rounded-2xl px-6 py-5 transition-all hover:scale-[1.01] active:scale-[0.99]"
@@ -2275,164 +2238,6 @@ export default function FocusApp() {
           </div>
         )}
 
-        {/* === VISUALIZATION SETUP MODAL === */}
-        {showVisualizationSetup && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-end sm:items-center justify-center p-4"
-            onClick={() => setShowVisualizationSetup(false)}>
-            <div onClick={(e) => e.stopPropagation()}
-              className="bg-neutral-900 border rounded-3xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto"
-              style={{ borderColor: dayTheme.accent + "40",
-                boxShadow: `0 20px 60px ${dayTheme.accent}30` }}>
-              <div className="text-center mb-6">
-                <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center"
-                  style={{ background: dayTheme.accent + "20" }}>
-                  <Sparkles size={22} style={{ color: dayTheme.accent }} />
-                </div>
-                <h3 className="text-xl font-light mb-1">Préparation mentale</h3>
-                <p className="text-xs text-white/50">
-                  Visualisez votre journée avant de démarrer
-                </p>
-              </div>
-
-              {/* Step 1: duration */}
-              <div className="mb-5">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-2.5">
-                  1. Durée
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1, 2, 3].map((m) => {
-                    const isSel = visMinutes === m;
-                    return (
-                      <button key={m} onClick={() => setVisMinutes(m)}
-                        className="py-3 rounded-xl border transition"
-                        style={{
-                          background: isSel ? dayTheme.accent + "20" : "rgba(255,255,255,0.03)",
-                          borderColor: isSel ? dayTheme.accent + "60" : "rgba(255,255,255,0.1)",
-                          color: isSel ? dayTheme.accent : "rgba(255,255,255,0.7)",
-                        }}>
-                        <span className="text-lg font-light">{m}</span>
-                        <span className="text-xs ml-1">min</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Step 2: mode */}
-              <div className="mb-5">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-2.5">
-                  2. Ambiance
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => { setVisMode("music"); setVisGuidedId(null); }}
-                    className="p-3 rounded-xl border transition flex flex-col items-start gap-1.5"
-                    style={{
-                      background: visMode === "music" ? "#FFFFFF15" : "rgba(255,255,255,0.03)",
-                      borderColor: visMode === "music" ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)",
-                    }}>
-                    <Headphones size={16} className={visMode === "music" ? "text-white" : "text-white/60"} />
-                    <p className="text-sm font-medium">Ma musique</p>
-                    <p className="text-[10px] text-white/50">Mes fichiers MP3</p>
-                  </button>
-                  <button
-                    onClick={() => { setVisMode("guided"); setVisMusicId(null); }}
-                    className="p-3 rounded-xl border transition flex flex-col items-start gap-1.5"
-                    style={{
-                      background: visMode === "guided" ? dayTheme.accent + "15" : "rgba(255,255,255,0.03)",
-                      borderColor: visMode === "guided" ? dayTheme.accent + "50" : "rgba(255,255,255,0.1)",
-                    }}>
-                    <Brain size={16} style={{ color: visMode === "guided" ? dayTheme.accent : "rgba(255,255,255,0.6)" }} />
-                    <p className="text-sm font-medium" style={{ color: visMode === "guided" ? dayTheme.accent : "white" }}>
-                      Guidée
-                    </p>
-                    <p className="text-[10px] text-white/50">Visualisation animée</p>
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 3: choice */}
-              {visMode === "music" && (
-                <div className="mb-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-2.5">
-                    3. Choisir un morceau
-                  </p>
-                  {customTracks.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-white/15 p-4 text-center">
-                      <p className="text-xs text-white/50 mb-2">Aucune musique importée</p>
-                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition cursor-pointer">
-                        <Upload size={12} className="text-white/60" />
-                        <span className="text-xs">Importer un MP3</span>
-                        <input type="file" accept="audio/*" multiple className="hidden" onChange={handleMusicUpload} />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                      {customTracks.map((t) => (
-                        <button key={t.id}
-                          onClick={() => setVisMusicId(t.id)}
-                          className="w-full p-2.5 rounded-xl border flex items-center gap-2.5 transition text-left"
-                          style={{
-                            background: visMusicId === t.id ? "#FFFFFF15" : "rgba(255,255,255,0.03)",
-                            borderColor: visMusicId === t.id ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)",
-                          }}>
-                          <Headphones size={13} className={visMusicId === t.id ? "text-white" : "text-white/50"} />
-                          <span className="text-xs truncate flex-1">{t.name}</span>
-                          {visMusicId === t.id && <Check size={12} className="text-white" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {visMode === "guided" && (
-                <div className="mb-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-2.5">
-                    3. Choisir une visualisation
-                  </p>
-                  <div className="space-y-1.5 max-h-52 overflow-y-auto">
-                    {MEDITATIONS.map((m) => {
-                      const Icon = m.icon;
-                      const isSel = visGuidedId === m.id;
-                      return (
-                        <button key={m.id}
-                          onClick={() => setVisGuidedId(m.id)}
-                          className="w-full p-3 rounded-xl border flex items-center gap-3 transition text-left"
-                          style={{
-                            background: isSel ? m.color + "15" : "rgba(255,255,255,0.03)",
-                            borderColor: isSel ? m.color + "50" : "rgba(255,255,255,0.1)",
-                          }}>
-                          <Icon size={15} style={{ color: m.color }} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium" style={{ color: isSel ? m.color : "white" }}>
-                              {m.name}
-                            </p>
-                            <p className="text-[10px] text-white/50 truncate">{m.description}</p>
-                          </div>
-                          {isSel && <Check size={12} style={{ color: m.color }} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={beginVisualization}
-                disabled={!visMode || (visMode === "music" && !visMusicId) || (visMode === "guided" && !visGuidedId)}
-                className="w-full py-3.5 rounded-xl text-sm font-medium transition hover:scale-[1.02] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
-                style={{ background: dayTheme.accent, color: "#000" }}
-              >
-                Commencer la visualisation · {visMinutes} min
-              </button>
-              <button onClick={() => setShowVisualizationSetup(false)}
-                className="w-full mt-2 py-2.5 text-xs text-white/40 hover:text-white/70 transition">
-                Annuler
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* === NO-TASKS WARNING POPUP === */}
         {showNoTasksWarning && (
@@ -2516,6 +2321,11 @@ export default function FocusApp() {
                           ? "Avez-vous déjà fini votre objectif ?"
                           : "Avez-vous rempli votre objectif ?"}
                       </p>
+                      {!isInProgress && (
+                        <p className="text-[11px] text-white/30 italic mt-3 px-2">
+                          Prenez votre temps · vos prochaines tâches sont en pause
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       {/* Early finish (only when in progress with time left) */}
@@ -2545,7 +2355,15 @@ export default function FocusApp() {
                         <PlusIcon size={14} />
                         {isInProgress ? "Pas encore, ajouter du temps" : "Non, ajouter du temps"}
                       </button>
-                      <button onClick={() => isInProgress ? setEndTaskPopup(null) : markTaskSkipped(endTaskPopup.id)}
+                      <button onClick={() => {
+                          if (isInProgress) {
+                            popupOpenedAtRef.current = null;
+                            popupTriggerKindRef.current = null;
+                            setEndTaskPopup(null);
+                          } else {
+                            markTaskSkipped(endTaskPopup.id);
+                          }
+                        }}
                         className="w-full py-2.5 text-xs text-white/40 hover:text-white/70 transition">
                         {isInProgress ? "Continuer normalement" : "Passer à la prochaine tâche"}
                       </button>
