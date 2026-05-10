@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Plus, Play, Pause, Trash2, Volume2, VolumeX, Zap, Maximize2, X,
   Pencil, ChevronDown, StickyNote, Mail, MapPin, Calendar, LogOut, Sparkles,
-  ChevronLeft, Camera, BarChart3, Wind, CloudRain, Coffee, Trees, Music,
+  ChevronLeft, ChevronRight, Camera, BarChart3, Wind, CloudRain, Coffee, Trees, Music,
   Brain, Flame, Heart, Moon, TrendingUp, Award, Clock, CheckCircle2,
   Upload, Headphones, Search, Briefcase, Dumbbell, Utensils, BookOpen,
   Bike, Waves, Mountain, Activity, Footprints, Target, ShoppingCart,
@@ -115,9 +115,203 @@ const DEFAULT_TASKS = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
 const toMin = (hm) => { const [h, m] = hm.split(":").map(Number); return h * 60 + m; };
 const fromMin = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
+// === BRAIN GEOMETRY ===
+// Pseudo-random generator (deterministic)
+const seededRandom = (seed) => {
+  let s = seed;
+  return () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+};
+
+// Generate all nodes + links for a given total days count, distributed across cycles.
+// Each cycle = up to 70 nodes in a distinct cluster region of the brain shape.
+const generateBrainGeometry = (totalDays) => {
+  if (totalDays === 0) return { nodes: [], links: [] };
+
+  const nodes = []; // { x, y, cycleIdx, dayIdx, color }
+  const links = []; // { from, to, cycleIdx }
+
+  const totalCycles = Math.ceil(totalDays / BRAIN_CYCLE_DAYS);
+  const totalNodesNeeded = Math.floor((totalDays / BRAIN_CYCLE_DAYS) * BRAIN_NODES_PER_CYCLE);
+
+  // The brain is drawn in viewBox 0..200 (square). The HEAD silhouette occupies it.
+  // Neurons appear ONLY in the upper skull region (top half of head, like in reference image).
+  // Skull region: roughly x: 50..150, y: 35..90
+  const clusterAnchors = [
+    { x: 100, y: 50 },   // 1: top crown center
+    { x: 75, y: 55 },    // 2: top left
+    { x: 125, y: 55 },   // 3: top right
+    { x: 60, y: 70 },    // 4: mid left
+    { x: 140, y: 70 },   // 5: mid right
+    { x: 100, y: 65 },   // 6: center
+    { x: 70, y: 80 },    // 7: lower left
+    { x: 130, y: 80 },   // 8: lower right
+    { x: 100, y: 80 },   // 9: lower center
+    { x: 85, y: 45 },    // 10: top inner left
+    { x: 115, y: 45 },   // 11: top inner right
+    { x: 100, y: 75 },   // 12: deep center
+  ];
+
+  for (let cIdx = 0; cIdx < totalCycles; cIdx++) {
+    const rng = seededRandom(cIdx * 7919 + 13);
+    const color = BRAIN_CYCLE_COLORS[cIdx % BRAIN_CYCLE_COLORS.length];
+    const anchor = clusterAnchors[cIdx % clusterAnchors.length];
+
+    // How many nodes in this cycle so far
+    const cycleStartDay = cIdx * BRAIN_CYCLE_DAYS;
+    const cycleEndDay = Math.min((cIdx + 1) * BRAIN_CYCLE_DAYS, totalDays);
+    const daysInThisCycle = cycleEndDay - cycleStartDay;
+    if (daysInThisCycle <= 0) continue;
+    const nodesInThisCycle = Math.floor((daysInThisCycle / BRAIN_CYCLE_DAYS) * BRAIN_NODES_PER_CYCLE);
+
+    const cycleNodeStartIdx = nodes.length;
+    for (let n = 0; n < nodesInThisCycle; n++) {
+      // Spread nodes around anchor with gaussian-like falloff
+      const angle = rng() * Math.PI * 2;
+      const radius = 6 + rng() * 16; // cluster radius (smaller, denser)
+      const x = anchor.x + Math.cos(angle) * radius;
+      const y = anchor.y + Math.sin(angle) * radius;
+      // STRICT clamp to upper skull region only
+      const cx = Math.max(52, Math.min(148, x));
+      const cy = Math.max(38, Math.min(88, y));
+      nodes.push({
+        x: cx,
+        y: cy,
+        cycleIdx: cIdx,
+        dayIdx: cycleStartDay + Math.floor(n / (BRAIN_NODES_PER_CYCLE / BRAIN_CYCLE_DAYS)),
+        color,
+        size: 1.2 + rng() * 1.6,
+        twinkleDelay: rng() * 4,
+      });
+    }
+
+    // Generate links — each new node links to 1-3 nearby nodes in the same cycle
+    for (let n = 1; n < nodesInThisCycle; n++) {
+      const fromIdx = cycleNodeStartIdx + n;
+      const linksCount = 1 + Math.floor(rng() * 2);
+      // Find 2-3 closest existing nodes in this cycle
+      const candidates = [];
+      for (let m = 0; m < n; m++) {
+        const otherIdx = cycleNodeStartIdx + m;
+        const dx = nodes[fromIdx].x - nodes[otherIdx].x;
+        const dy = nodes[fromIdx].y - nodes[otherIdx].y;
+        candidates.push({ idx: otherIdx, dist: Math.sqrt(dx * dx + dy * dy) });
+      }
+      candidates.sort((a, b) => a.dist - b.dist);
+      for (let l = 0; l < Math.min(linksCount, candidates.length); l++) {
+        links.push({ from: fromIdx, to: candidates[l].idx, cycleIdx: cIdx, color });
+      }
+    }
+
+    // After cycle 1, add 1-2 inter-cycle bridges to the previous cycle's cluster
+    if (cIdx > 0 && cycleNodeStartIdx > 0 && nodesInThisCycle > 5) {
+      const prevCycleNodes = nodes.slice(0, cycleNodeStartIdx).filter(n => n.cycleIdx === cIdx - 1);
+      if (prevCycleNodes.length > 0) {
+        const bridgeCount = 1 + Math.floor(rng() * 2);
+        for (let b = 0; b < bridgeCount; b++) {
+          const fromIdx = cycleNodeStartIdx + Math.floor(rng() * Math.min(5, nodesInThisCycle));
+          const prevNode = prevCycleNodes[Math.floor(rng() * prevCycleNodes.length)];
+          const toIdx = nodes.indexOf(prevNode);
+          if (toIdx !== -1) {
+            links.push({ from: fromIdx, to: toIdx, cycleIdx: cIdx, color, isBridge: true });
+          }
+        }
+      }
+    }
+  }
+
+  return { nodes, links };
+};
+
+// === BRAIN — 28-day habit cycles ===
+const BRAIN_CYCLE_DAYS = 28;
+const BRAIN_NODES_PER_CYCLE = 70; // total nodes added during one cycle (~2-3 per day)
+const BRAIN_LINKS_PER_NODE_AVG = 1.8; // avg connections per node
+
+// 12 cycle colors (one per cycle, then loops)
+const BRAIN_CYCLE_COLORS = [
+  "#A78BFA", // 1 - violet
+  "#60A5FA", // 2 - blue
+  "#34D399", // 3 - green
+  "#FBBF24", // 4 - amber
+  "#FB923C", // 5 - orange
+  "#F472B6", // 6 - pink
+  "#F87171", // 7 - red
+  "#22D3EE", // 8 - cyan
+  "#A3E635", // 9 - lime
+  "#FBBF77", // 10 - peach
+  "#C084FC", // 11 - magenta
+  "#FFFFFF", // 12 - white (legendary final cycle)
+];
+
+// Tutorial steps — `target` is a data-tour attribute name on a DOM element to spotlight
+const TUTORIAL_STEPS = [
+  {
+    title: "Bienvenue 👋",
+    body: "Voici un tour rapide pour découvrir Focus. Cela prend moins d'une minute. Vous pouvez passer à tout moment.",
+    target: null, // centered modal, no spotlight
+  },
+  {
+    title: "Votre cerveau 🧠",
+    body: "Chaque journée où vous validez au moins 80% de vos tâches active une nouvelle connexion neuronale. Sur 28 jours, un cycle complet se forme. Au fil du temps, votre cerveau évolue avec de nouvelles couleurs.",
+    target: "brain",
+  },
+  {
+    title: "Votre menu",
+    body: "Votre profil, vos statistiques de la semaine et votre abonnement sont accessibles depuis ici.",
+    target: "menu",
+  },
+  {
+    title: "Les jours de la semaine",
+    body: "Chaque jour a sa couleur et son ambiance. Naviguez entre les jours pour planifier toute votre semaine.",
+    target: "week",
+  },
+  {
+    title: "Programmer une tâche",
+    body: "Cliquez sur le bouton + pour ajouter une nouvelle tâche : choisissez sa catégorie, son heure de début et sa durée.",
+    target: "addBtn",
+  },
+  {
+    title: "Vos tâches",
+    body: "Toutes vos tâches du jour s'affichent en timeline. Vous pourrez les modifier, les supprimer ou ajouter des notes.",
+    target: "timeline",
+  },
+  {
+    title: "Démarrer la journée",
+    body: "Quand votre planning est prêt, cliquez ici pour lancer votre journée. Si vous démarrez avant l'heure de votre première tâche, un compte à rebours vous indiquera le temps restant.",
+    target: "startBtn",
+  },
+  {
+    title: "Tâche en cours",
+    body: "Une fois la journée lancée, ce grand cercle affiche le temps restant sur la tâche en cours. Les barres en dessous progressent du vert au rouge selon le temps écoulé.",
+    target: null,
+  },
+  {
+    title: "Mettre en pause",
+    body: "Besoin d'une pause ? Cliquez sur le bouton pause qui apparaîtra. Toutes vos tâches restantes seront automatiquement décalées du temps de votre pause.",
+    target: null,
+  },
+  {
+    title: "Fin d'une tâche",
+    body: "À la fin de chaque tâche, on vous demande si vous avez rempli votre objectif. Vous pouvez confirmer, ajouter du temps, ou la passer.",
+    target: null,
+  },
+  {
+    title: "Bilan de fin de journée",
+    body: "Une fois toutes vos tâches accomplies, un bilan personnalisé vous attend avec votre taux de respect, votre temps de pause et un message de coaching. Bonne route avec Focus !",
+    target: null,
+  },
+];
+
 export default function FocusApp() {
   const [user, setUser] = useState(null);
   const [signupForm, setSignupForm] = useState({ firstName: "", lastName: "", birthDate: "", email: "" });
+
+  // === TUTORIAL ===
+  const [tutorialStep, setTutorialStep] = useState(null); // null = inactive, 0..N = active step
+  const [tutorialRect, setTutorialRect] = useState(null); // { top, left, width, height } of target element
 
   const [showProfile, setShowProfile] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -138,6 +332,15 @@ export default function FocusApp() {
   // === COMPLETION TRACKING ===
   // { dayIndex: { taskId: 'done' | 'skipped' } }
   const [completions, setCompletions] = useState({ 0: {}, 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {} });
+
+  // === BRAIN STATE ===
+  // validatedDates: Set of date strings (YYYY-MM-DD) where the user reached >= 80% completion
+  // We use date strings so we can't game the system by validating the same day twice
+  const [validatedDates, setValidatedDates] = useState(new Set());
+  const lastBrainCheckRef = useRef(null); // last day-key we already evaluated, to avoid double-counting
+  const [showBrain, setShowBrain] = useState(false);
+  const [brainPreviewCycle, setBrainPreviewCycle] = useState(null); // null = real data, 1..12 = preview that many full cycles
+  const [brainNewNodeBurst, setBrainNewNodeBurst] = useState(null); // {ts} when a new day is validated
   const dayCompletions = completions[selectedDay] || {};
 
   const [isRunning, setIsRunning] = useState(false);
@@ -290,6 +493,49 @@ export default function FocusApp() {
     return () => clearInterval(id);
   }, [isRunning, demoMode]);
 
+  // === TUTORIAL: measure target position when step changes ===
+  useEffect(() => {
+    if (tutorialStep === null) {
+      setTutorialRect(null);
+      return;
+    }
+    const step = TUTORIAL_STEPS[tutorialStep];
+    if (!step?.target) {
+      setTutorialRect(null);
+      return;
+    }
+
+    const measure = () => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) {
+        setTutorialRect(null);
+        return;
+      }
+      // Scroll element into view smoothly if not visible
+      const r = el.getBoundingClientRect();
+      const viewportH = window.innerHeight;
+      const isVisible = r.top >= 0 && r.bottom <= viewportH;
+      if (!isVisible) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Re-measure after scroll
+        setTimeout(() => {
+          const r2 = el.getBoundingClientRect();
+          setTutorialRect({ top: r2.top, left: r2.left, width: r2.width, height: r2.height });
+        }, 400);
+      } else {
+        setTutorialRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      }
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [tutorialStep]);
+
   // Start the day directly (no more visualization)
   const startDay = () => {
     setNow(new Date());
@@ -330,18 +576,29 @@ export default function FocusApp() {
     }
   } else {
     const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    currentTask = sortedTasks.find((t) => nowMin >= toMin(t.start) && nowMin < toMin(t.end));
+    // A task is "current" only if we're in its time window AND it hasn't been validated yet
+    currentTask = sortedTasks.find((t) =>
+      nowMin >= toMin(t.start) && nowMin < toMin(t.end) && !dayCompletions[t.id]
+    );
     if (currentTask) {
       const start = toMin(currentTask.start);
       const end = toMin(currentTask.end);
       progress = ((nowMin - start) / (end - start)) * 100;
       remainingSec = Math.max(0, Math.floor((end - nowMin) * 60));
     }
+    // Next task: the next non-completed task that hasn't started yet
     const currentIdx = currentTask ? sortedTasks.indexOf(currentTask) : -1;
-    nextTask = currentIdx >= 0 ? sortedTasks[currentIdx + 1] : sortedTasks.find(t => toMin(t.start) > nowMin);
+    if (currentIdx >= 0) {
+      nextTask = sortedTasks.slice(currentIdx + 1).find(t => !dayCompletions[t.id]);
+    } else {
+      nextTask = sortedTasks.find(t => toMin(t.start) > nowMin && !dayCompletions[t.id])
+                 || sortedTasks.find(t => !dayCompletions[t.id] && toMin(t.end) > nowMin);
+    }
   }
 
   const getTaskProgress = (task) => {
+    // If task has been validated/skipped, freeze progress at 100%
+    if (dayCompletions[task.id]) return 100;
     if (demoMode) {
       const idx = sortedTasks.indexOf(task);
       const taskStart = idx * DEMO_TASK_DURATION;
@@ -421,6 +678,13 @@ export default function FocusApp() {
   })();
   const trialExpired = user && !user.isSubscribed && trialDaysLeft <= 0;
 
+  // === BRAIN PROGRESSION ===
+  const brainTotalDays = validatedDates.size;
+  const brainCurrentCycleIdx = Math.floor(brainTotalDays / BRAIN_CYCLE_DAYS); // 0-indexed
+  const brainDayInCycle = brainTotalDays % BRAIN_CYCLE_DAYS; // 0..27
+  const brainCycleProgress = brainDayInCycle / BRAIN_CYCLE_DAYS; // 0..1
+  const brainCurrentColor = BRAIN_CYCLE_COLORS[brainCurrentCycleIdx % BRAIN_CYCLE_COLORS.length];
+
   // Activate subscription (mock — in real app this would hit a payment processor)
   const activateSubscription = () => {
     if (!paymentForm.cardNumber || !paymentForm.expiry || !paymentForm.cvc || !paymentForm.name) return;
@@ -436,9 +700,10 @@ export default function FocusApp() {
       city: "",
       photo: null,
       bio: "",
-      trialStart: Date.now(),       // when the trial started
-      isSubscribed: false,           // not paying yet
+      trialStart: Date.now(),
+      isSubscribed: false,
     });
+    setTutorialStep(0); // launch tutorial on first connection
   };
 
   const openAdd = () => {
@@ -618,14 +883,44 @@ export default function FocusApp() {
   };
 
   // Check if this was the last task of the day → trigger summary popup
-  const checkAndTriggerDaySummary = (taskId) => {
-    const newCompletions = { ...dayCompletions, [taskId]: dayCompletions[taskId] || "done" };
-    const allHandled = tasks.every(t => newCompletions[t.id]); // every task has a status
-    if (allHandled && tasks.length > 0 && !summaryShownRef.current.has(selectedDay)) {
+  // Auto-detect end of day: when all tasks are completed/skipped, show summary
+  useEffect(() => {
+    if (!isRunning || tasks.length === 0) return;
+    if (summaryShownRef.current.has(selectedDay)) return;
+    const allHandled = tasks.every(t => dayCompletions[t.id]);
+    if (allHandled) {
       summaryShownRef.current.add(selectedDay);
       // Slight delay to let the burst animation play
-      setTimeout(() => setShowDaySummary(true), 1200);
+      const id = setTimeout(() => setShowDaySummary(true), 1200);
+      return () => clearTimeout(id);
     }
+  }, [dayCompletions, tasks, isRunning, selectedDay]);
+
+  // === BRAIN: validate today when ≥80% of tasks are done ===
+  useEffect(() => {
+    if (!isRunning || tasks.length === 0) return;
+    const doneCount = tasks.filter(t => dayCompletions[t.id] === "done").length;
+    const ratio = doneCount / tasks.length;
+    if (ratio < 0.8) return;
+
+    // Use today's real-world date as the unique key
+    const today = new Date();
+    const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    // Already validated today? skip
+    if (validatedDates.has(dateKey)) return;
+    if (lastBrainCheckRef.current === dateKey) return;
+
+    lastBrainCheckRef.current = dateKey;
+    const newSet = new Set(validatedDates);
+    newSet.add(dateKey);
+    setValidatedDates(newSet);
+    setBrainNewNodeBurst({ ts: Date.now() });
+    setTimeout(() => setBrainNewNodeBurst(null), 2400);
+  }, [dayCompletions, tasks, isRunning]);
+
+  const checkAndTriggerDaySummary = (taskId) => {
+    // kept for compatibility — actual logic now lives in the useEffect above
   };
 
   const markTaskDone = (taskId) => {
@@ -693,7 +988,6 @@ export default function FocusApp() {
     // Compute current "now" in minutes (real or demo)
     let nowMinutes;
     if (demoMode) {
-      // In demo, "now" inside the task is fractional: idx * 30 + elapsed
       const elapsedInTask = demoElapsed % DEMO_TASK_DURATION;
       const fakeProgressRatio = elapsedInTask / DEMO_TASK_DURATION;
       const taskDur = toMin(sorted[idx].end) - toMin(sorted[idx].start);
@@ -701,19 +995,23 @@ export default function FocusApp() {
     } else {
       nowMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     }
+    const nowMinRounded = Math.ceil(nowMinutes); // round up to next full minute
 
-    const taskEnd = toMin(sorted[idx].end);
-    const minutesSaved = Math.max(0, Math.round(taskEnd - nowMinutes));
-    if (minutesSaved <= 0) {
-      // Nothing to save, just mark as done
-      markTaskDone(task.id);
-      return;
+    // Shift = how much we need to pull next task's start back so it starts NOW
+    let shift = 0;
+    if (idx + 1 < sorted.length) {
+      const nextStart = toMin(sorted[idx + 1].start);
+      shift = Math.max(0, nextStart - nowMinRounded);
     }
 
     const updated = sorted.map((t, i) => {
       if (i < idx) return t;
-      if (i === idx) return { ...t, end: fromMin(Math.max(toMin(t.start) + 1, toMin(t.end) - minutesSaved)) };
-      return { ...t, start: fromMin(toMin(t.start) - minutesSaved), end: fromMin(toMin(t.end) - minutesSaved) };
+      // Current task: end it NOW
+      if (i === idx) {
+        return { ...t, end: fromMin(Math.max(toMin(t.start) + 1, nowMinRounded)) };
+      }
+      // Following tasks: pull them earlier by `shift`
+      return { ...t, start: fromMin(toMin(t.start) - shift), end: fromMin(toMin(t.end) - shift) };
     });
     setTasks(updated);
 
@@ -729,6 +1027,7 @@ export default function FocusApp() {
     popupTriggerKindRef.current = null;
     setEndTaskPopup(null);
     setShowExtendChoice(false);
+    setNow(new Date()); // force immediate re-detection of next task
     checkAndTriggerDaySummary(task.id);
   };
 
@@ -1000,6 +1299,7 @@ export default function FocusApp() {
                 trialStart: Date.now(),
                 isSubscribed: false,
               });
+              setTutorialStep(0);
             }}
             className="w-full mt-4 py-2.5 rounded-xl border border-dashed border-yellow-400/30 text-[11px] text-yellow-300/80 hover:bg-yellow-400/5 hover:border-yellow-400/50 transition flex items-center justify-center gap-2"
           >
@@ -1352,6 +1652,328 @@ export default function FocusApp() {
   }
 
   // ============================================================
+  // === MY BRAIN PAGE ===
+  // ============================================================
+  if (showBrain) {
+    // If user is previewing a specific cycle (beta tester mode), simulate that many days
+    const displayedDays = brainPreviewCycle !== null
+      ? brainPreviewCycle * BRAIN_CYCLE_DAYS
+      : brainTotalDays;
+    const { nodes, links } = generateBrainGeometry(displayedDays);
+    const displayedCycleIdx = Math.floor(displayedDays / BRAIN_CYCLE_DAYS) - (displayedDays > 0 && displayedDays % BRAIN_CYCLE_DAYS === 0 ? 1 : 0);
+    const displayedDayInCycle = displayedDays === 0 ? 0 : ((displayedDays - 1) % BRAIN_CYCLE_DAYS) + 1;
+    const displayedCycleProgress = displayedDays === 0 ? 0 : ((displayedDays - 1) % BRAIN_CYCLE_DAYS) / BRAIN_CYCLE_DAYS;
+    const displayedColor = BRAIN_CYCLE_COLORS[Math.max(0, displayedCycleIdx) % BRAIN_CYCLE_COLORS.length];
+    const totalCycles = Math.max(1, displayedCycleIdx + 1);
+    const isNewCycleStart = displayedDayInCycle === 0 && displayedDays > 0;
+
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden"
+        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        {/* Atmospheric glow background */}
+        <div className="absolute inset-0 opacity-30 pointer-events-none">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full blur-3xl"
+            style={{ background: displayedColor }} />
+        </div>
+
+        <div className="relative z-10 max-w-md mx-auto px-6 py-8">
+          {/* Header */}
+          <header className="flex items-center justify-between mb-6">
+            <button onClick={() => { setShowBrain(false); setBrainPreviewCycle(null); }}
+              className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
+              <ChevronLeft size={18} />
+            </button>
+            <h2 className="text-lg font-light">Mon cerveau</h2>
+            <div className="w-10" />
+          </header>
+
+          {/* Preview banner if in beta-test mode */}
+          {brainPreviewCycle !== null && (
+            <div className="mb-4 px-3 py-2 rounded-xl border border-yellow-400/30 bg-yellow-400/5 flex items-center justify-between">
+              <span className="text-[11px] text-yellow-300/80">
+                🧪 Aperçu cycle {brainPreviewCycle} (bêta)
+              </span>
+              <button onClick={() => setBrainPreviewCycle(null)}
+                className="text-[10px] text-yellow-300/60 hover:text-yellow-300 underline">
+                Quitter l'aperçu
+              </button>
+            </div>
+          )}
+
+          {/* Cycle indicator */}
+          <div className="text-center mb-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 mb-1">
+              Cycle {Math.max(1, displayedCycleIdx + 1)} sur 12
+            </p>
+            <p className="text-2xl font-extralight" style={{ color: displayedColor }}>
+              {displayedDays === 0
+                ? "Pas encore commencé"
+                : `Jour ${displayedDayInCycle} / ${BRAIN_CYCLE_DAYS}`}
+            </p>
+          </div>
+
+          {/* The brain visualization — face with neon outline */}
+          <div className="relative aspect-square mb-6 rounded-3xl overflow-hidden"
+            style={{
+              background: "radial-gradient(circle at center, rgba(15,15,22,1) 0%, rgba(5,5,8,1) 100%)",
+              border: `1px solid ${displayedColor}30`,
+            }}>
+            {/* Soft halo behind the head */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-3/4 h-3/4 rounded-full blur-3xl opacity-25"
+                style={{ background: displayedColor }} />
+            </div>
+
+            <svg viewBox="0 0 200 220" className="relative w-full h-full">
+              <defs>
+                {/* Strong glow filter for neon effect */}
+                <filter id="neonGlow" x="-100%" y="-100%" width="300%" height="300%">
+                  <feGaussianBlur stdDeviation="2" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="nodeGlow" x="-100%" y="-100%" width="300%" height="300%">
+                  <feGaussianBlur stdDeviation="1.2" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              {/* === HEAD: front-facing minimal neon outline === */}
+              <g filter="url(#neonGlow)" stroke="rgba(255,255,255,0.85)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                {/* Skull / face outline (oval head with chin and ears bumps) */}
+                <path d="M 100 18
+                         C 70 18, 48 32, 44 60
+                         C 42 72, 44 88, 50 102
+                         L 50 114
+                         C 46 116, 44 122, 46 128
+                         C 48 134, 53 136, 56 134
+                         L 58 138
+                         C 60 152, 68 168, 78 176
+                         C 80 178, 78 184, 82 186
+                         C 88 192, 96 194, 100 194
+                         C 104 194, 112 192, 118 186
+                         C 122 184, 120 178, 122 176
+                         C 132 168, 140 152, 142 138
+                         L 144 134
+                         C 147 136, 152 134, 154 128
+                         C 156 122, 154 116, 150 114
+                         L 150 102
+                         C 156 88, 158 72, 156 60
+                         C 152 32, 130 18, 100 18 Z" />
+
+                {/* Closed eyes — gentle curves */}
+                <path d="M 73 88 Q 80 84, 88 88" />
+                <path d="M 112 88 Q 120 84, 127 88" />
+
+                {/* Nose — thin elegant line */}
+                <path d="M 100 95 L 96 125 Q 96 130, 102 130" />
+
+                {/* Mouth — slight smile */}
+                <path d="M 88 152 Q 100 156, 112 152" />
+
+                {/* Lower lip line */}
+                <path d="M 92 158 Q 100 162, 108 158" opacity="0.6" />
+              </g>
+
+              {/* === NEURAL NETWORK in the upper skull === */}
+              {/* Links between nodes */}
+              <g>
+                {links.map((link, i) => {
+                  const from = nodes[link.from];
+                  const to = nodes[link.to];
+                  if (!from || !to) return null;
+                  return (
+                    <line key={`l${i}`}
+                      x1={from.x} y1={from.y}
+                      x2={to.x} y2={to.y}
+                      stroke={link.color}
+                      strokeWidth={link.isBridge ? "0.7" : "0.45"}
+                      opacity={link.isBridge ? "0.85" : "0.6"}
+                      style={{ filter: `drop-shadow(0 0 1.5px ${link.color})` }}
+                    />
+                  );
+                })}
+              </g>
+
+              {/* Brain nodes (synapses) */}
+              <g filter="url(#nodeGlow)">
+                {nodes.map((node, i) => (
+                  <circle key={`n${i}`}
+                    cx={node.x} cy={node.y}
+                    r={node.size}
+                    fill={node.color}
+                    style={{ filter: `drop-shadow(0 0 3px ${node.color})` }}
+                  >
+                    <animate attributeName="opacity"
+                      values="0.55;1;0.55"
+                      dur={`${2 + (i % 4) * 0.5}s`}
+                      repeatCount="indefinite"
+                      begin={`${node.twinkleDelay}s`} />
+                  </circle>
+                ))}
+              </g>
+
+              {/* Holographic projection base — purple glow ellipse below the head */}
+              <ellipse cx="100" cy="210" rx="50" ry="3"
+                fill={displayedColor}
+                opacity="0.55"
+                style={{ filter: "blur(3px)" }} />
+              <ellipse cx="100" cy="211" rx="30" ry="1.5"
+                fill={displayedColor}
+                opacity="0.9"
+                style={{ filter: "blur(1px)" }} />
+            </svg>
+
+            {/* Empty-state message */}
+            {displayedDays === 0 && (
+              <div className="absolute inset-x-0 bottom-12 text-center px-6">
+                <p className="text-xs text-white/40 italic leading-relaxed">
+                  Validez au moins 80% de vos tâches aujourd'hui<br/>
+                  pour activer votre première connexion.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-3 gap-2.5 mb-6">
+            <div className="rounded-xl p-3 border text-center"
+              style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+              <p className="text-[9px] uppercase tracking-[0.15em] text-white/40 mb-1">Jours</p>
+              <p className="text-xl font-light font-mono tabular-nums" style={{ color: displayedColor }}>
+                {displayedDays}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 border text-center"
+              style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+              <p className="text-[9px] uppercase tracking-[0.15em] text-white/40 mb-1">Connexions</p>
+              <p className="text-xl font-light font-mono tabular-nums">
+                {nodes.length + links.length}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 border text-center"
+              style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+              <p className="text-[9px] uppercase tracking-[0.15em] text-white/40 mb-1">Cycles</p>
+              <p className="text-xl font-light font-mono tabular-nums">
+                {totalCycles}<span className="text-white/30 text-sm">/12</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Cycle progress bar */}
+          <div className="mb-6">
+            <div className="flex items-baseline justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                Progression du cycle
+              </p>
+              <p className="text-xs font-mono tabular-nums" style={{ color: displayedColor }}>
+                {Math.round(displayedCycleProgress * 100)}%
+              </p>
+            </div>
+            <div className="relative h-1.5 rounded-full overflow-hidden bg-white/[0.06]">
+              <div className="absolute inset-y-0 left-0 rounded-full transition-all"
+                style={{
+                  width: `${displayedCycleProgress * 100}%`,
+                  background: displayedColor,
+                  boxShadow: `0 0 10px ${displayedColor}`,
+                }} />
+            </div>
+            <p className="text-[11px] text-white/40 mt-2 italic">
+              {displayedDays === 0 && "Chaque journée validée fait grandir votre cerveau."}
+              {displayedDays > 0 && displayedCycleProgress < 0.5 && "Vous bâtissez vos premières habitudes. Continuez."}
+              {displayedCycleProgress >= 0.5 && displayedCycleProgress < 1 && "Plus que quelques jours pour terminer ce cycle."}
+              {isNewCycleStart && "Nouveau cycle ✨ Une nouvelle couleur, de nouvelles connexions."}
+            </p>
+          </div>
+
+          {/* Cycle legend (colors of completed/current cycles) */}
+          <div className="rounded-2xl border p-4 mb-4"
+            style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-3">
+              Vos cycles
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {[...Array(12)].map((_, i) => {
+                const isCompleted = i < displayedCycleIdx;
+                const isCurrent = i === displayedCycleIdx && displayedDays > 0;
+                const isLocked = i > displayedCycleIdx || displayedDays === 0;
+                const c = BRAIN_CYCLE_COLORS[i];
+                return (
+                  <div key={i} className="flex flex-col items-center gap-1">
+                    <div className="w-6 h-6 rounded-full border flex items-center justify-center"
+                      style={{
+                        background: isLocked ? "rgba(255,255,255,0.03)" : c + "30",
+                        borderColor: isLocked ? "rgba(255,255,255,0.1)" : c,
+                        boxShadow: isCurrent ? `0 0 12px ${c}` : "none",
+                      }}>
+                      {isCompleted && <Check size={10} style={{ color: c }} />}
+                      {isCurrent && (
+                        <div className="w-1.5 h-1.5 rounded-full animate-pulse"
+                          style={{ background: c }} />
+                      )}
+                    </div>
+                    <p className="text-[8px] text-white/30 font-mono tabular-nums">
+                      {i + 1}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* === BETA TESTERS: cycle preview buttons === */}
+          <div className="rounded-2xl border-2 border-dashed border-yellow-400/30 bg-yellow-400/[0.03] p-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">🧪</span>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-yellow-300/80">
+                Aperçu bêta · à supprimer en prod
+              </p>
+            </div>
+            <p className="text-[11px] text-white/50 mb-3 leading-relaxed">
+              Visualisez à quoi ressemblera le cerveau après chaque cycle complet.
+            </p>
+            <div className="grid grid-cols-6 gap-1.5">
+              {[...Array(12)].map((_, i) => {
+                const cycleNum = i + 1;
+                const c = BRAIN_CYCLE_COLORS[i];
+                const isActive = brainPreviewCycle === cycleNum;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setBrainPreviewCycle(cycleNum)}
+                    className="aspect-square rounded-lg border text-[11px] font-mono tabular-nums transition hover:scale-105"
+                    style={{
+                      background: isActive ? c + "30" : "rgba(255,255,255,0.02)",
+                      borderColor: isActive ? c : c + "40",
+                      color: isActive ? c : "rgba(255,255,255,0.6)",
+                      boxShadow: isActive ? `0 0 12px ${c}80` : "none",
+                    }}
+                  >
+                    {cycleNum}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-white/30 italic mt-3 text-center">
+              Chaque bouton = {BRAIN_CYCLE_DAYS} jours validés × le cycle choisi
+            </p>
+          </div>
+
+          <p className="text-[11px] text-white/30 text-center italic px-4 leading-relaxed">
+            Un cycle = 28 jours. Le temps qu'il faut pour ancrer une habitude.
+            <br/>Chaque journée validée à 80% ou plus active une nouvelle connexion.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
   // === SUBSCRIPTION PAGE ===
   // ============================================================
   if (showSubscription || trialExpired) {
@@ -1662,6 +2284,7 @@ export default function FocusApp() {
           </button>
 
           <button onClick={() => setShowMenu(true)}
+            data-tour="menu"
             className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full bg-white/5 backdrop-blur border border-white/10 hover:bg-white/10 transition">
             <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center text-xs font-medium"
               style={{ background: dayTheme.accent + "30", border: `1px solid ${dayTheme.accent}40` }}>
@@ -1676,7 +2299,7 @@ export default function FocusApp() {
         {!user.isSubscribed && trialDaysLeft > 0 && (
           <button
             onClick={() => setShowSubscription(true)}
-            className="w-full mb-6 px-4 py-2.5 rounded-2xl border flex items-center justify-between gap-3 transition hover:bg-white/[0.04]"
+            className="w-full mb-3 px-4 py-2.5 rounded-2xl border flex items-center justify-between gap-3 transition hover:bg-white/[0.04]"
             style={{
               background: "rgba(255,255,255,0.025)",
               borderColor: "rgba(255,255,255,0.08)",
@@ -1694,8 +2317,76 @@ export default function FocusApp() {
           </button>
         )}
 
+        {/* === MY BRAIN BANNER === */}
+        <button
+          onClick={() => setShowBrain(true)}
+          data-tour="brain"
+          className="w-full mb-6 px-4 py-3 rounded-2xl border flex items-center gap-3 transition hover:bg-white/[0.04] group"
+          style={{
+            background: `linear-gradient(135deg, ${brainCurrentColor}10 0%, transparent 70%)`,
+            borderColor: brainCurrentColor + "30",
+          }}
+        >
+          {/* Mini brain preview */}
+          <div className="relative w-11 h-11 shrink-0 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full blur-md opacity-50"
+              style={{ background: brainCurrentColor }} />
+            <svg viewBox="0 0 60 60" className="relative w-full h-full">
+              {/* Brain outline */}
+              <path
+                d="M 30 10 C 18 10, 10 16, 10 26 C 8 32, 12 38, 18 42 C 22 46, 26 47, 30 46 C 34 47, 38 46, 42 42 C 48 38, 52 32, 50 26 C 50 16, 42 10, 30 10 Z"
+                fill="none"
+                stroke={brainCurrentColor}
+                strokeWidth="0.8"
+                opacity="0.7"
+              />
+              {/* Mini glowing dots — proportional to total days */}
+              {[...Array(Math.min(brainTotalDays, 12))].map((_, i) => {
+                const angle = (i / 12) * Math.PI * 2;
+                const r = 10 + (i % 3) * 3;
+                return (
+                  <circle key={i}
+                    cx={30 + Math.cos(angle) * r}
+                    cy={26 + Math.sin(angle) * r * 0.7}
+                    r="1.3"
+                    fill={BRAIN_CYCLE_COLORS[Math.floor((i / Math.max(brainTotalDays, 1)) * (brainCurrentCycleIdx + 1)) % BRAIN_CYCLE_COLORS.length]}
+                  >
+                    <animate attributeName="opacity" values="0.4;1;0.4" dur={`${1.5 + (i % 3) * 0.4}s`} repeatCount="indefinite" begin={`${i * 0.1}s`} />
+                  </circle>
+                );
+              })}
+            </svg>
+          </div>
+
+          {/* Text */}
+          <div className="flex-1 text-left min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-0.5">
+              Mon cerveau
+            </p>
+            <p className="text-sm font-medium" style={{ color: brainCurrentColor }}>
+              {brainTotalDays === 0
+                ? "Validez votre première journée"
+                : `Cycle ${brainCurrentCycleIdx + 1} · Jour ${brainDayInCycle + (brainTotalDays > 0 ? 1 : 0)}/${BRAIN_CYCLE_DAYS}`}
+            </p>
+          </div>
+
+          {/* Progress bar */}
+          {brainTotalDays > 0 && (
+            <div className="w-12 h-1 rounded-full overflow-hidden bg-white/10 shrink-0">
+              <div className="h-full rounded-full transition-all"
+                style={{
+                  width: `${brainCycleProgress * 100}%`,
+                  background: brainCurrentColor,
+                  boxShadow: `0 0 6px ${brainCurrentColor}`,
+                }} />
+            </div>
+          )}
+
+          <ChevronRight size={14} className="text-white/40 shrink-0" />
+        </button>
+
         {/* WEEK SELECTOR */}
-        <div className="mb-6 -mx-6 px-6">
+        <div data-tour="week" className="mb-6 -mx-6 px-6">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs uppercase tracking-[0.2em] text-white/40">Semaine</p>
             <div className="flex items-center gap-3">
@@ -2051,11 +2742,13 @@ export default function FocusApp() {
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-xs uppercase tracking-[0.2em] text-white/40">Timeline · {dayTheme.name}</h3>
           <button onClick={openAdd}
+            data-tour="addBtn"
             className="flex items-center gap-1.5 text-xs text-white/60 hover:text-white transition">
             <Plus size={14} /> Ajouter
           </button>
         </div>
 
+        <div data-tour="timeline">
         {sortedTasks.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 p-10 text-center">
             <div className="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
@@ -2228,6 +2921,7 @@ export default function FocusApp() {
             })}
           </div>
         )}
+        </div>
 
         {/* ===== START DAY BUTTON (only when truly not started — not paused) ===== */}
         {!isRunning && !pausedAt && (
@@ -2240,6 +2934,7 @@ export default function FocusApp() {
                   startDay();
                 }
               }}
+              data-tour="startBtn"
               className="group relative w-full overflow-hidden rounded-2xl px-6 py-5 transition-all hover:scale-[1.01] active:scale-[0.99]"
               style={{
                 background: `linear-gradient(135deg, ${dayTheme.accent}25 0%, ${dayTheme.accent}10 50%, transparent 100%)`,
@@ -2538,6 +3233,20 @@ export default function FocusApp() {
               <div className="h-px bg-white/5 my-2" />
 
               <button
+                onClick={() => { setShowMenu(false); setShowBrain(true); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition text-left"
+              >
+                <Brain size={15} style={{ color: brainCurrentColor }} />
+                <span className="text-sm flex-1">Mon cerveau</span>
+                {brainTotalDays > 0 && (
+                  <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
+                    style={{ background: brainCurrentColor + "20", color: brainCurrentColor }}>
+                    {brainTotalDays}j
+                  </span>
+                )}
+              </button>
+
+              <button
                 onClick={() => { setShowMenu(false); setShowStats(true); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition text-left"
               >
@@ -2572,7 +3281,9 @@ export default function FocusApp() {
               </button>
 
               <button
-                onClick={() => setVoiceOn(!voiceOn)}
+                onClick={() => {
+                  setVoiceOn(!voiceOn);
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition text-left"
               >
                 {voiceOn ? <Volume2 size={15} className="text-white/60" /> : <VolumeX size={15} className="text-white/60" />}
@@ -2580,6 +3291,14 @@ export default function FocusApp() {
                 <span className="text-[10px] text-white/40 uppercase tracking-wider">
                   {voiceOn ? "ON" : "OFF"}
                 </span>
+              </button>
+
+              <button
+                onClick={() => { setShowMenu(false); setTutorialStep(0); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition text-left"
+              >
+                <Sparkles size={15} className="text-white/60" />
+                <span className="text-sm">Revoir le tutoriel</span>
               </button>
 
               <div className="h-px bg-white/5 my-2" />
@@ -2592,6 +3311,43 @@ export default function FocusApp() {
                 <span className="text-sm">Se déconnecter</span>
               </button>
             </div>
+          </div>
+        )}
+
+        {/* === BRAIN CONNECTION BURST (when a new day validates the brain) === */}
+        {brainNewNodeBurst && (
+          <div className="fixed inset-0 pointer-events-none z-[95] flex items-end justify-center pb-32 sm:pb-40">
+            <button
+              onClick={() => { setBrainNewNodeBurst(null); setShowBrain(true); }}
+              className="pointer-events-auto rounded-2xl border px-5 py-4 backdrop-blur-md flex items-center gap-3"
+              style={{
+                background: `linear-gradient(135deg, ${brainCurrentColor}25 0%, rgba(15,15,20,0.95) 100%)`,
+                borderColor: brainCurrentColor + "60",
+                boxShadow: `0 20px 60px ${brainCurrentColor}50, 0 0 40px ${brainCurrentColor}30`,
+                animation: "burst-fade 2.4s ease-out forwards",
+              }}
+            >
+              {/* Mini pulsing brain dot */}
+              <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                <div className="absolute inset-0 rounded-full animate-ping opacity-50"
+                  style={{ background: brainCurrentColor }} />
+                <div className="relative w-5 h-5 rounded-full"
+                  style={{
+                    background: brainCurrentColor,
+                    boxShadow: `0 0 16px ${brainCurrentColor}`,
+                  }} />
+              </div>
+              <div className="text-left">
+                <p className="text-[10px] uppercase tracking-[0.2em]"
+                  style={{ color: brainCurrentColor }}>
+                  Nouvelle connexion
+                </p>
+                <p className="text-sm font-medium text-white">
+                  Jour {brainDayInCycle}/{BRAIN_CYCLE_DAYS} · Cycle {brainCurrentCycleIdx + 1}
+                </p>
+              </div>
+              <ChevronRight size={14} className="text-white/40 shrink-0" />
+            </button>
           </div>
         )}
 
@@ -2636,6 +3392,173 @@ export default function FocusApp() {
           </div>
         )}
 
+
+        {/* === TUTORIAL OVERLAY (with spotlight on target element) === */}
+        {tutorialStep !== null && TUTORIAL_STEPS[tutorialStep] && (() => {
+          const step = TUTORIAL_STEPS[tutorialStep];
+          const isFirst = tutorialStep === 0;
+          const isLast = tutorialStep === TUTORIAL_STEPS.length - 1;
+          const hasTarget = step.target && tutorialRect;
+          const padding = 8; // padding around the highlighted element
+
+          // Compute bubble position based on target
+          // - if no target: center the bubble
+          // - if target is in the upper half: bubble below the target
+          // - if target is in the lower half: bubble above the target
+          let bubbleStyle = {};
+          let arrowPos = null; // 'top' or 'bottom' or null
+          if (hasTarget) {
+            const viewportH = window.innerHeight;
+            const targetCenterY = tutorialRect.top + tutorialRect.height / 2;
+            const targetIsInUpperHalf = targetCenterY < viewportH / 2;
+
+            if (targetIsInUpperHalf) {
+              // Bubble below the target
+              bubbleStyle = {
+                top: `${tutorialRect.top + tutorialRect.height + padding + 16}px`,
+                left: "50%",
+                transform: "translateX(-50%)",
+              };
+              arrowPos = "top";
+            } else {
+              // Bubble above the target
+              bubbleStyle = {
+                bottom: `${viewportH - tutorialRect.top + padding + 16}px`,
+                left: "50%",
+                transform: "translateX(-50%)",
+              };
+              arrowPos = "bottom";
+            }
+          } else {
+            // Centered
+            bubbleStyle = {
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+            };
+          }
+
+          return (
+            <div className="fixed inset-0 z-[100]" style={{ pointerEvents: "auto" }}>
+              {/* === SPOTLIGHT === */}
+              {/* The trick: a transparent box where the target is, with a giant box-shadow filling the rest of the screen with dark overlay */}
+              {hasTarget ? (
+                <div
+                  className="fixed pointer-events-none transition-all duration-300"
+                  style={{
+                    top: `${tutorialRect.top - padding}px`,
+                    left: `${tutorialRect.left - padding}px`,
+                    width: `${tutorialRect.width + padding * 2}px`,
+                    height: `${tutorialRect.height + padding * 2}px`,
+                    borderRadius: "16px",
+                    boxShadow: `
+                      0 0 0 9999px rgba(0, 0, 0, 0.85),
+                      inset 0 0 0 2px ${dayTheme.accent},
+                      0 0 30px ${dayTheme.accent}80
+                    `,
+                  }}
+                />
+              ) : (
+                <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+              )}
+
+              {/* === BUBBLE === */}
+              <div
+                className="fixed max-w-[340px] w-[calc(100%-32px)] rounded-3xl p-5 border z-[110]"
+                style={{
+                  ...bubbleStyle,
+                  background: "linear-gradient(135deg, rgba(20,20,25,0.97) 0%, rgba(15,15,20,0.97) 100%)",
+                  borderColor: dayTheme.accent + "50",
+                  boxShadow: `0 20px 80px ${dayTheme.accent}30, 0 0 60px ${dayTheme.accent}15`,
+                }}
+              >
+                {/* Arrow pointing at the target */}
+                {arrowPos === "top" && (
+                  <div
+                    className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 rotate-45 border-t border-l"
+                    style={{
+                      background: "rgba(20,20,25,0.97)",
+                      borderColor: dayTheme.accent + "50",
+                    }}
+                  />
+                )}
+                {arrowPos === "bottom" && (
+                  <div
+                    className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rotate-45 border-b border-r"
+                    style={{
+                      background: "rgba(20,20,25,0.97)",
+                      borderColor: dayTheme.accent + "50",
+                    }}
+                  />
+                )}
+
+                {/* Header */}
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles size={12} style={{ color: dayTheme.accent }} />
+                    <p className="text-[10px] uppercase tracking-[0.2em]"
+                      style={{ color: dayTheme.accent }}>
+                      Tutoriel · {tutorialStep + 1}/{TUTORIAL_STEPS.length}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setTutorialStep(null)}
+                    className="text-[10px] text-white/40 hover:text-white/70 transition uppercase tracking-wider"
+                  >
+                    Passer
+                  </button>
+                </div>
+
+                <h3 className="text-lg font-light mb-2 leading-tight">
+                  {step.title}
+                </h3>
+
+                <p className="text-xs text-white/70 leading-relaxed mb-4">
+                  {step.body}
+                </p>
+
+                {/* Progress dots */}
+                <div className="flex items-center justify-center gap-1.5 mb-4">
+                  {TUTORIAL_STEPS.map((_, i) => (
+                    <span key={i}
+                      className="rounded-full transition-all"
+                      style={{
+                        width: i === tutorialStep ? "16px" : "5px",
+                        height: "5px",
+                        background: i === tutorialStep ? dayTheme.accent : "rgba(255,255,255,0.2)",
+                      }} />
+                  ))}
+                </div>
+
+                {/* Navigation */}
+                <div className="flex items-center gap-2">
+                  {!isFirst && (
+                    <button
+                      onClick={() => setTutorialStep(tutorialStep - 1)}
+                      className="flex-1 py-2.5 rounded-xl border border-white/10 text-xs text-white/70 hover:bg-white/5 transition flex items-center justify-center gap-1"
+                    >
+                      <ChevronLeft size={12} /> Précédent
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (isLast) {
+                        setTutorialStep(null);
+                      } else {
+                        setTutorialStep(tutorialStep + 1);
+                      }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-medium transition hover:scale-[1.02] flex items-center justify-center gap-1"
+                    style={{ background: dayTheme.accent, color: "#000" }}
+                  >
+                    {isLast ? "C'est parti ✨" : "Suivant"}
+                    {!isLast && <ChevronRight size={12} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* === END-OF-DAY SUMMARY POPUP === */}
         {showDaySummary && (() => {
