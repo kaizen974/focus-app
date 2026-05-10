@@ -163,6 +163,17 @@ export default function FocusApp() {
   const lastEndedRef = useRef(new Set()); // tasks already proposed
   const popupOpenedAtRef = useRef(null); // timestamp when popup was opened (to calc response delay)
   const popupTriggerKindRef = useRef(null); // 'natural' | 'manual' — only natural-end pauses the day
+  const [pausedAt, setPausedAt] = useState(null); // timestamp when the day was paused (null = not paused)
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false);
+  const [skipPauseConfirm, setSkipPauseConfirm] = useState(false); // user chose "don't ask again"
+
+  // === DAY TRACKING (per-day metrics) ===
+  // { dayIndex: { pauseMin: number, delayMin: number, originalTasks: [{ id, start, end }] } }
+  const [dayMetrics, setDayMetrics] = useState({ 0: {}, 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {} });
+
+  // === END-OF-DAY SUMMARY POPUP ===
+  const [showDaySummary, setShowDaySummary] = useState(false);
+  const summaryShownRef = useRef(new Set()); // dayIndex that already saw summary today
 
   // === NO-TASKS WARNING ===
   const [showNoTasksWarning, setShowNoTasksWarning] = useState(false);
@@ -285,6 +296,18 @@ export default function FocusApp() {
     setIsRunning(true);
     if (demoMode) setDemoElapsed(0);
     notifiedRef.current.clear();
+    // Capture original task times for delay calculation later
+    setDayMetrics({
+      ...dayMetrics,
+      [selectedDay]: {
+        pauseMin: 0,
+        delayMin: 0,
+        originalTasks: tasks.map(t => ({ id: t.id, start: t.start, end: t.end })),
+        startedAt: Date.now(),
+      },
+    });
+    // Reset summary marker so it can re-show if user restarts
+    summaryShownRef.current.delete(selectedDay);
   };
 
   const sortedTasks = [...tasks].sort((a, b) => toMin(a.start) - toMin(b.start));
@@ -420,7 +443,17 @@ export default function FocusApp() {
 
   const openAdd = () => {
     setEditingTask(null);
-    setTaskForm({ name: "", start: "", end: "", notes: "", meditationId: null, category: null, subcategory: null });
+    // Pre-fill the start time with the latest task's end time, if any
+    let suggestedStart = "";
+    if (sortedTasks.length > 0) {
+      const lastTask = sortedTasks.reduce((latest, t) =>
+        toMin(t.end) > toMin(latest.end) ? t : latest, sortedTasks[0]);
+      suggestedStart = lastTask.end;
+    }
+    setTaskForm({
+      name: "", start: suggestedStart, end: "",
+      notes: "", meditationId: null, category: null, subcategory: null,
+    });
     setShowAdd(true);
   };
 
@@ -459,10 +492,62 @@ export default function FocusApp() {
     lastEndedRef.current.clear();
   };
 
+  // Actually pause the day (called after user confirmation)
+  const confirmPause = () => {
+    setPausedAt(Date.now());
+    setIsRunning(false);
+    setShowPauseConfirm(false);
+  };
+
   const togglePlay = () => {
-    if (!isRunning && demoMode) setDemoElapsed(0);
-    setIsRunning(!isRunning);
-    notifiedRef.current.clear();
+    if (!isRunning) {
+      // === RESUME ===
+      if (pausedAt && !demoMode) {
+        // Calculate how long the pause lasted
+        const pauseSec = Math.floor((Date.now() - pausedAt) / 1000);
+        const pauseMin = Math.ceil(pauseSec / 60); // round up to next minute
+        if (pauseMin > 0) {
+          // Shift all tasks that aren't fully passed yet
+          const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+          const updated = tasks.map(t => {
+            if (toMin(t.end) + pauseMin <= nowMin) return t;
+            // Task currently in progress when paused → push end time
+            if (toMin(t.start) <= nowMin && toMin(t.end) > nowMin) {
+              return { ...t, end: fromMin(toMin(t.end) + pauseMin) };
+            }
+            // Task in the future → push both start and end
+            if (toMin(t.start) > nowMin) {
+              return { ...t, start: fromMin(toMin(t.start) + pauseMin), end: fromMin(toMin(t.end) + pauseMin) };
+            }
+            return t;
+          });
+          setTasks(updated);
+          updated.forEach(t => {
+            if (toMin(t.end) > nowMin) lastEndedRef.current.delete(t.id);
+          });
+          // Track pause time in day metrics
+          setDayMetrics(prev => ({
+            ...prev,
+            [selectedDay]: {
+              ...(prev[selectedDay] || {}),
+              pauseMin: ((prev[selectedDay] || {}).pauseMin || 0) + pauseMin,
+            },
+          }));
+        }
+      }
+      setPausedAt(null);
+      if (demoMode) setDemoElapsed(0);
+      setNow(new Date());
+      setIsRunning(true);
+      notifiedRef.current.clear();
+    } else {
+      // === PAUSE === (with confirmation, unless user opted out)
+      if (skipPauseConfirm || demoMode) {
+        confirmPause();
+      } else {
+        setShowPauseConfirm(true);
+      }
+    }
   };
 
   const handlePhotoUpload = (e) => {
@@ -532,6 +617,17 @@ export default function FocusApp() {
     sorted.slice(idx + 1).forEach(t => lastEndedRef.current.delete(t.id));
   };
 
+  // Check if this was the last task of the day → trigger summary popup
+  const checkAndTriggerDaySummary = (taskId) => {
+    const newCompletions = { ...dayCompletions, [taskId]: dayCompletions[taskId] || "done" };
+    const allHandled = tasks.every(t => newCompletions[t.id]); // every task has a status
+    if (allHandled && tasks.length > 0 && !summaryShownRef.current.has(selectedDay)) {
+      summaryShownRef.current.add(selectedDay);
+      // Slight delay to let the burst animation play
+      setTimeout(() => setShowDaySummary(true), 1200);
+    }
+  };
+
   const markTaskDone = (taskId) => {
     setCompletions({
       ...completions,
@@ -545,6 +641,7 @@ export default function FocusApp() {
     shiftUpcomingByResponseDelay(taskId);
     setEndTaskPopup(null);
     setShowExtendChoice(false);
+    checkAndTriggerDaySummary(taskId);
   };
 
   const markTaskSkipped = (taskId) => {
@@ -555,6 +652,7 @@ export default function FocusApp() {
     shiftUpcomingByResponseDelay(taskId);
     setEndTaskPopup(null);
     setShowExtendChoice(false);
+    checkAndTriggerDaySummary(taskId);
   };
 
   const extendTask = (task, minutesToAdd) => {
@@ -631,6 +729,7 @@ export default function FocusApp() {
     popupTriggerKindRef.current = null;
     setEndTaskPopup(null);
     setShowExtendChoice(false);
+    checkAndTriggerDaySummary(task.id);
   };
 
   const radius = 120;
@@ -705,6 +804,152 @@ export default function FocusApp() {
         </div>
         <div className="relative z-10 w-full max-w-sm">
           <div className="text-center mb-10">
+
+            {/* === HOLOGRAPHIC BRAIN === */}
+            <div className="relative mx-auto mb-4 w-32 h-32 flex items-center justify-center"
+              style={{ animation: "hologram-flicker 4s ease-in-out infinite" }}>
+              {/* Soft glow halo behind */}
+              <div className="absolute inset-0 rounded-full blur-2xl opacity-60"
+                style={{
+                  background: "radial-gradient(circle, #A78BFA 0%, transparent 70%)",
+                  animation: "hologram-color 8s linear infinite, brain-pulse 3s ease-in-out infinite",
+                }} />
+
+              {/* Scanning line effect */}
+              <div className="absolute inset-0 rounded-full overflow-hidden opacity-40">
+                <div className="absolute inset-x-0 h-0.5"
+                  style={{
+                    background: "linear-gradient(90deg, transparent, #A78BFA, transparent)",
+                    animation: "hologram-scan 3s linear infinite",
+                    boxShadow: "0 0 12px #A78BFA",
+                  }} />
+              </div>
+
+              {/* The brain — realistic anatomical SVG with pulsation */}
+              <div style={{
+                animation: "brain-breathe 4s ease-in-out infinite, hologram-color 8s linear infinite",
+              }}>
+                <svg width="110" height="100" viewBox="0 0 220 200" fill="none">
+                  <defs>
+                    {/* Sweeping highlight gradient that travels across */}
+                    <linearGradient id="brainHighlight" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#A78BFA" stopOpacity="0.3" />
+                      <stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.95" />
+                      <stop offset="100%" stopColor="#A78BFA" stopOpacity="0.3" />
+                      <animate attributeName="x1" values="-100%;100%" dur="4s" repeatCount="indefinite" />
+                      <animate attributeName="x2" values="0%;200%" dur="4s" repeatCount="indefinite" />
+                    </linearGradient>
+
+                    {/* Soft cerebral fill */}
+                    <radialGradient id="brainFill" cx="50%" cy="40%" r="60%">
+                      <stop offset="0%" stopColor="#A78BFA" stopOpacity="0.18" />
+                      <stop offset="100%" stopColor="#A78BFA" stopOpacity="0.04" />
+                    </radialGradient>
+                  </defs>
+
+                  {/* === CORTEX OUTER SHAPE (anatomical brain silhouette, side view) === */}
+                  {/* Main cerebrum outline */}
+                  <path
+                    d="M 110 30
+                       C 70 30, 35 50, 28 85
+                       C 22 110, 30 135, 45 152
+                       C 55 162, 70 168, 88 168
+                       L 92 165
+                       C 95 170, 105 172, 115 170
+                       C 130 175, 150 172, 165 162
+                       C 185 150, 195 125, 192 100
+                       C 195 75, 180 50, 155 38
+                       C 138 30, 122 28, 110 30 Z"
+                    fill="url(#brainFill)"
+                    stroke="#A78BFA"
+                    strokeWidth="1.5"
+                    strokeLinejoin="round"
+                  />
+
+                  {/* === CEREBRAL FOLDS (gyri & sulci) — these make it actually look like a brain === */}
+                  <g stroke="#A78BFA" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.85">
+                    {/* Top frontal lobe folds */}
+                    <path d="M 60 50 Q 75 42, 88 50 Q 95 58, 88 65 Q 75 70, 65 62" />
+                    <path d="M 95 42 Q 110 38, 125 45 Q 132 52, 122 60 Q 108 62, 100 55" />
+                    <path d="M 135 45 Q 150 42, 165 52 Q 170 60, 160 67 Q 145 68, 138 60" />
+
+                    {/* Middle / central sulcus zone */}
+                    <path d="M 50 80 Q 65 78, 72 88 Q 68 98, 55 95 Q 45 90, 50 80 Z" />
+                    <path d="M 80 78 Q 95 75, 105 85 Q 100 95, 88 95 Q 78 90, 80 78 Z" />
+                    <path d="M 115 78 Q 130 75, 140 85 Q 135 95, 122 95 Q 112 90, 115 78 Z" />
+                    <path d="M 150 78 Q 165 78, 172 88 Q 168 98, 155 95 Q 145 90, 150 80" />
+
+                    {/* Lower / parietal & temporal folds */}
+                    <path d="M 45 110 Q 60 108, 70 118 Q 65 128, 52 125 Q 42 120, 45 110" />
+                    <path d="M 78 108 Q 95 105, 105 115 Q 100 128, 85 128 Q 75 122, 78 108" />
+                    <path d="M 115 108 Q 132 105, 142 115 Q 138 128, 122 128 Q 112 122, 115 108" />
+                    <path d="M 152 108 Q 170 108, 178 120 Q 172 130, 158 128 Q 148 120, 152 108" />
+
+                    {/* Bottom temporal folds */}
+                    <path d="M 60 138 Q 75 138, 85 148 Q 80 158, 68 156 Q 58 150, 60 138" />
+                    <path d="M 95 140 Q 112 138, 122 148 Q 118 158, 105 158 Q 92 152, 95 140" />
+                    <path d="M 132 138 Q 148 138, 158 148 Q 152 158, 138 156 Q 128 150, 132 138" />
+
+                    {/* Central longitudinal fissure (subtle) */}
+                    <path d="M 110 35 Q 108 80, 110 130 Q 112 155, 110 168" opacity="0.5" strokeDasharray="3 3" />
+                  </g>
+
+                  {/* === SHINY HIGHLIGHT SWEEP — moving light reflection === */}
+                  <path
+                    d="M 110 30
+                       C 70 30, 35 50, 28 85
+                       C 22 110, 30 135, 45 152
+                       C 55 162, 70 168, 88 168
+                       L 92 165
+                       C 95 170, 105 172, 115 170
+                       C 130 175, 150 172, 165 162
+                       C 185 150, 195 125, 192 100
+                       C 195 75, 180 50, 155 38
+                       C 138 30, 122 28, 110 30 Z"
+                    fill="url(#brainHighlight)"
+                    opacity="0.35"
+                    style={{ mixBlendMode: "screen" }}
+                  />
+
+                  {/* === GLOWING SYNAPSES === */}
+                  <g fill="#FFFFFF">
+                    <circle cx="75" cy="55" r="1.8" opacity="0.95">
+                      <animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="130" cy="50" r="1.5" opacity="0.9">
+                      <animate attributeName="opacity" values="1;0.3;1" dur="2.5s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="60" cy="100" r="1.6" opacity="0.85">
+                      <animate attributeName="opacity" values="0.3;1;0.3" dur="3s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="155" cy="95" r="1.7" opacity="0.95">
+                      <animate attributeName="opacity" values="1;0.4;1" dur="2.2s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="100" cy="85" r="2" opacity="1">
+                      <animate attributeName="opacity" values="0.5;1;0.5" dur="1.8s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="125" cy="120" r="1.6" opacity="0.9">
+                      <animate attributeName="opacity" values="1;0.3;1" dur="2.7s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="80" cy="140" r="1.5" opacity="0.8">
+                      <animate attributeName="opacity" values="0.4;1;0.4" dur="3.2s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="145" cy="145" r="1.7" opacity="0.9">
+                      <animate attributeName="opacity" values="1;0.3;1" dur="2.4s" repeatCount="indefinite" />
+                    </circle>
+                  </g>
+                </svg>
+              </div>
+
+              {/* Holographic projection base — soft glowing line at the bottom */}
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-20 h-1 rounded-full opacity-70"
+                style={{
+                  background: "linear-gradient(90deg, transparent, #A78BFA, transparent)",
+                  filter: "blur(2px)",
+                  animation: "hologram-color 8s linear infinite",
+                }} />
+            </div>
+
             <h1 className="text-5xl font-light tracking-tight">focus<span className="text-violet-400">.</span></h1>
             <p className="text-xs text-white/40 mt-3 tracking-[0.25em] uppercase">Reprenez le contrôle du temps</p>
           </div>
@@ -740,6 +985,28 @@ export default function FocusApp() {
               3,99 € / mois ensuite · sans engagement
             </p>
           </div>
+
+          {/* === EPHEMERAL BETA BYPASS BUTTON === */}
+          <button
+            onClick={() => {
+              setUser({
+                firstName: "Bêta",
+                lastName: "Testeur",
+                birthDate: "1990-01-01",
+                email: "beta@focus.app",
+                city: "",
+                photo: null,
+                bio: "",
+                trialStart: Date.now(),
+                isSubscribed: false,
+              });
+            }}
+            className="w-full mt-4 py-2.5 rounded-xl border border-dashed border-yellow-400/30 text-[11px] text-yellow-300/80 hover:bg-yellow-400/5 hover:border-yellow-400/50 transition flex items-center justify-center gap-2"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+            Accès bêta · entrer sans inscription
+          </button>
+
           <footer className="mt-8 text-center">
             <p className="text-[10px] text-white/25 tracking-[0.15em] uppercase">propulsé par</p>
             <p className="mt-1 text-sm font-bold tracking-[0.08em]"
@@ -1312,6 +1579,42 @@ export default function FocusApp() {
           20% { opacity: 1; }
           100% { opacity: 0; }
         }
+        @keyframes particle-pulse {
+          0%, 100% { transform: scale(0.6) translate(0, 0); opacity: 0.4; }
+          50% { transform: scale(1.3) translate(2px, -2px); opacity: 1; }
+        }
+        @keyframes brain-rotate {
+          0% { transform: rotateY(0deg); }
+          100% { transform: rotateY(360deg); }
+        }
+        @keyframes hologram-flicker {
+          0%, 100% { opacity: 0.95; }
+          47% { opacity: 0.95; }
+          48% { opacity: 0.65; }
+          49% { opacity: 0.9; }
+          50% { opacity: 0.55; }
+          51% { opacity: 0.95; }
+          80% { opacity: 0.85; }
+        }
+        @keyframes hologram-color {
+          0% { filter: hue-rotate(0deg) drop-shadow(0 0 20px #A78BFA); }
+          25% { filter: hue-rotate(60deg) drop-shadow(0 0 25px #60A5FA); }
+          50% { filter: hue-rotate(180deg) drop-shadow(0 0 25px #34D399); }
+          75% { filter: hue-rotate(280deg) drop-shadow(0 0 25px #F472B6); }
+          100% { filter: hue-rotate(360deg) drop-shadow(0 0 20px #A78BFA); }
+        }
+        @keyframes hologram-scan {
+          0% { transform: translateY(-100%); }
+          100% { transform: translateY(200%); }
+        }
+        @keyframes brain-breathe {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.04); }
+        }
+        @keyframes brain-pulse {
+          0%, 100% { opacity: 0.5; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.1); }
+        }
       `}</style>
 
       <div className="absolute inset-0 opacity-50 pointer-events-none transition-all duration-1000">
@@ -1593,7 +1896,7 @@ export default function FocusApp() {
         )}
 
         {/* MAIN: only show the running ring when day is running */}
-        {isRunning && (() => {
+        {(isRunning || pausedAt) && (() => {
           // Calculate countdown to the next task if no task is currently active
           let countdownSec = 0;
           let totalWaitSec = 0;
@@ -1610,7 +1913,7 @@ export default function FocusApp() {
           const accent = currentTask ? currentTask.color : (nextTask ? nextTask.color : dayTheme.accent);
 
           return (
-          <div className="flex flex-col items-center mb-12">
+          <div className="flex flex-col items-center mb-3">
             <div className="relative w-72 h-72">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 280 280">
                 <circle cx="140" cy="140" r={radius} stroke="rgba(255,255,255,0.05)" strokeWidth="2" fill="none" />
@@ -1630,6 +1933,48 @@ export default function FocusApp() {
                     }} />
                 )}
               </svg>
+
+              {/* === COUNTDOWN PARTICLE FIELD ===
+                  1 particle at 0%, hundreds near 100% with exponential growth */}
+              {!currentTask && nextTask && !demoMode && (
+                <div className="absolute inset-2 rounded-full overflow-hidden pointer-events-none">
+                  {(() => {
+                    // Exponential growth: 1 → 250 particles
+                    // At 0% → 1 ; at 50% → ~30 ; at 90% → ~150 ; at 100% → 250
+                    const eased = Math.pow(countdownProgress / 100, 1.8);
+                    const particleCount = Math.max(1, Math.floor(1 + eased * 249));
+                    const particles = [];
+                    for (let i = 0; i < particleCount; i++) {
+                      // Stable pseudo-random distribution (deterministic per index)
+                      const angle = ((i * 137.508) % 360); // golden angle for even spread
+                      const distRatio = 0.05 + ((i * 17) % 90) / 100;
+                      const x = 50 + Math.cos(angle * Math.PI / 180) * distRatio * 47;
+                      const y = 50 + Math.sin(angle * Math.PI / 180) * distRatio * 47;
+                      const size = 1 + ((i * 7) % 4);
+                      const duration = 1.5 + ((i * 11) % 30) / 10;
+                      const delay = ((i * 13) % 40) / 10;
+                      particles.push(
+                        <span
+                          key={i}
+                          className="absolute rounded-full"
+                          style={{
+                            left: `${x}%`,
+                            top: `${y}%`,
+                            width: `${size}px`,
+                            height: `${size}px`,
+                            background: accent,
+                            boxShadow: `0 0 ${3 + countdownProgress / 10}px ${accent}`,
+                            opacity: 0.3 + (countdownProgress / 150),
+                            animation: `particle-pulse ${duration}s ease-in-out infinite`,
+                            animationDelay: `${delay}s`,
+                          }}
+                        />
+                      );
+                    }
+                    return particles;
+                  })()}
+                </div>
+              )}
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
                 {currentTask ? (
                   <>
@@ -1673,19 +2018,31 @@ export default function FocusApp() {
               </div>
             </div>
 
-            {/* Pause + plein écran buttons row */}
-            <div className="flex items-center gap-3 mt-8">
+            {/* Pause / Resume + plein écran buttons row */}
+            <div className="flex items-center gap-3 mt-5">
               <button onClick={togglePlay}
-                className="w-14 h-14 rounded-full bg-white/10 backdrop-blur border border-white/20 text-white flex items-center justify-center hover:bg-white/15 active:scale-95 transition">
-                <Pause size={18} fill="white" />
+                className="w-12 h-12 rounded-full backdrop-blur border flex items-center justify-center transition active:scale-95"
+                style={{
+                  background: pausedAt ? dayTheme.accent : "rgba(255,255,255,0.1)",
+                  borderColor: pausedAt ? dayTheme.accent : "rgba(255,255,255,0.2)",
+                  color: pausedAt ? "#000" : "#fff",
+                }}>
+                {pausedAt ? <Play size={16} fill="#000" className="ml-0.5" /> : <Pause size={16} fill="#fff" />}
               </button>
               <button onClick={() => setFocusMode(true)}
-                className="px-5 py-3 rounded-full border backdrop-blur flex items-center gap-2 transition hover:bg-white/5"
+                className="px-4 py-2.5 rounded-full border backdrop-blur flex items-center gap-2 transition hover:bg-white/5"
                 style={{ borderColor: dayTheme.accent + "40", background: dayTheme.accent + "10" }}>
-                <Maximize2 size={13} style={{ color: dayTheme.accent }} />
+                <Maximize2 size={12} style={{ color: dayTheme.accent }} />
                 <span className="text-xs font-medium" style={{ color: dayTheme.accent }}>Plein écran</span>
               </button>
             </div>
+
+            {pausedAt && (
+              <p className="text-xs text-white/50 mt-3 tracking-[0.2em] uppercase flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: dayTheme.accent }} />
+                En pause
+              </p>
+            )}
           </div>
           );
         })()}
@@ -1735,22 +2092,43 @@ export default function FocusApp() {
                   }`}
                   style={{ background: "rgba(255,255,255,0.025)" }}>
                   <div className="absolute inset-y-0 left-0 transition-all pointer-events-none"
-                    style={{ width: `${taskProg}%`,
-                      background: `linear-gradient(90deg, ${task.color}55 0%, ${task.color}40 70%, ${task.color}10 100%)`,
-                      transition: "width 1s linear" }} />
+                    style={{
+                      width: `${taskProg}%`,
+                      background: "linear-gradient(90deg, rgba(52,211,153,0.55) 0%, rgba(251,191,36,0.45) 60%, rgba(248,113,113,0.55) 100%)",
+                      transition: "width 1s linear",
+                    }} />
+                  {/* Soft color overlay matching task color, subtle */}
+                  <div className="absolute inset-y-0 left-0 transition-all pointer-events-none"
+                    style={{
+                      width: `${taskProg}%`,
+                      background: `linear-gradient(90deg, ${task.color}15 0%, ${task.color}05 100%)`,
+                      transition: "width 1s linear",
+                      mixBlendMode: "overlay",
+                    }} />
                   {taskProg > 0 && taskProg < 100 && (
                     <div className="absolute inset-y-0 pointer-events-none"
                       style={{ left: `calc(${taskProg}% - 24px)`, width: "48px", transition: "left 1s linear" }}>
-                      <div className="absolute inset-y-0 right-6 w-px"
-                        style={{ background: task.color, boxShadow: `0 0 14px ${task.color}, 0 0 28px ${task.color}80`,
-                          animation: "shimmer-edge 1.4s ease-in-out infinite" }} />
-                      {[...Array(8)].map((_, i) => (
-                        <span key={i} className="absolute rounded-full"
-                          style={{ width: `${2 + (i % 3)}px`, height: `${2 + (i % 3)}px`, background: task.color,
-                            right: `${4 + (i * 5)}px`, top: `${15 + ((i * 13) % 50)}%`, opacity: 0,
-                            animation: `float-up ${1.4 + (i * 0.18)}s ease-out infinite`,
-                            animationDelay: `${i * 0.15}s`, boxShadow: `0 0 6px ${task.color}` }} />
-                      ))}
+                      {/* Leading edge color shifts from green→red based on progress */}
+                      {(() => {
+                        // Interpolate between green (#34D399), amber (#FBBF24) and red (#F87171)
+                        let edgeColor = "#34D399";
+                        if (taskProg > 50 && taskProg <= 80) edgeColor = "#FBBF24";
+                        else if (taskProg > 80) edgeColor = "#F87171";
+                        return (
+                          <>
+                            <div className="absolute inset-y-0 right-6 w-px"
+                              style={{ background: edgeColor, boxShadow: `0 0 14px ${edgeColor}, 0 0 28px ${edgeColor}80`,
+                                animation: "shimmer-edge 1.4s ease-in-out infinite" }} />
+                            {[...Array(8)].map((_, i) => (
+                              <span key={i} className="absolute rounded-full"
+                                style={{ width: `${2 + (i % 3)}px`, height: `${2 + (i % 3)}px`, background: edgeColor,
+                                  right: `${4 + (i * 5)}px`, top: `${15 + ((i * 13) % 50)}%`, opacity: 0,
+                                  animation: `float-up ${1.4 + (i * 0.18)}s ease-out infinite`,
+                                  animationDelay: `${i * 0.15}s`, boxShadow: `0 0 6px ${edgeColor}` }} />
+                            ))}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                   <button onClick={() => setExpandedId(isExpanded ? null : task.id)}
@@ -1851,8 +2229,8 @@ export default function FocusApp() {
           </div>
         )}
 
-        {/* ===== START DAY BUTTON (always visible when not running) ===== */}
-        {!isRunning && (
+        {/* ===== START DAY BUTTON (only when truly not started — not paused) ===== */}
+        {!isRunning && !pausedAt && (
           <div className="mt-10 mb-4 flex flex-col items-center">
             <button
               onClick={() => {
@@ -1953,6 +2331,26 @@ export default function FocusApp() {
               className="bg-neutral-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-light mb-1">{editingTask ? "Modifier la tâche" : "Nouvelle tâche"}</h3>
               <p className="text-xs text-white/40 mb-5">{dayTheme.name}</p>
+
+              {/* Hint: last task's end time when adding a new task */}
+              {!editingTask && sortedTasks.length > 0 && (() => {
+                const lastTask = sortedTasks.reduce((latest, t) =>
+                  toMin(t.end) > toMin(latest.end) ? t : latest, sortedTasks[0]);
+                return (
+                  <div className="mb-4 px-3.5 py-2.5 rounded-xl flex items-start gap-2.5 border"
+                    style={{ background: dayTheme.accent + "10", borderColor: dayTheme.accent + "30" }}>
+                    <Clock size={13} className="shrink-0 mt-0.5" style={{ color: dayTheme.accent }} />
+                    <div className="text-[11px] leading-relaxed">
+                      <p className="text-white/70">
+                        Votre dernière tâche se termine à <span className="font-mono tabular-nums font-medium text-white">{lastTask.end}</span>
+                      </p>
+                      <p className="text-white/40 mt-0.5">
+                        L'heure de début est pré-remplie pour enchaîner
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <button onClick={() => { setShowCategoryPicker(true); setPickerStep("category"); }}
                 className="w-full mb-4 p-3.5 rounded-xl border flex items-center gap-3 transition hover:bg-white/5"
@@ -2238,6 +2636,219 @@ export default function FocusApp() {
           </div>
         )}
 
+
+        {/* === END-OF-DAY SUMMARY POPUP === */}
+        {showDaySummary && (() => {
+          // Compute summary stats for this day
+          const totalTasks = tasks.length;
+          const doneTasks = tasks.filter(t => dayCompletions[t.id] === "done").length;
+          const skippedTasks = tasks.filter(t => dayCompletions[t.id] === "skipped").length;
+          const completionRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+          const metrics = dayMetrics[selectedDay] || {};
+          const pauseMin = metrics.pauseMin || 0;
+
+          // Compute total work time (sum of original task durations that were completed)
+          const original = metrics.originalTasks || [];
+          const workMin = tasks
+            .filter(t => dayCompletions[t.id] === "done")
+            .reduce((sum, t) => {
+              const orig = original.find(o => o.id === t.id);
+              if (orig) return sum + (toMin(orig.end) - toMin(orig.start));
+              return sum + (toMin(t.end) - toMin(t.start));
+            }, 0);
+
+          // Compute total delay = current task end times vs original
+          let delayMin = 0;
+          if (original.length > 0) {
+            original.forEach(o => {
+              const current = tasks.find(t => t.id === o.id);
+              if (current) {
+                const diff = toMin(current.end) - toMin(o.end);
+                if (diff > delayMin) delayMin = diff; // total cumulative delay = max shift on any task
+              }
+            });
+          }
+
+          // Personalized coaching message based on performance
+          let coachTitle = "";
+          let coachMessage = "";
+          let coachColor = dayTheme.accent;
+
+          if (completionRate === 100 && delayMin === 0) {
+            coachTitle = "Journée parfaite ! 🎯";
+            coachMessage = `Vous avez tout accompli, sans aucun retard. Quelle régularité ! Continuez sur cette lancée, c'est exactement ce qui fait la différence.`;
+            coachColor = "#34D399";
+          } else if (completionRate >= 80) {
+            coachTitle = "Excellente journée 👏";
+            coachMessage = `Vous avez accompli ${doneTasks} tâches sur ${totalTasks}. C'est une journée très solide. ${delayMin > 0 ? `Le petit retard de ${delayMin} min est tout à fait normal.` : "Bravo pour la précision !"}`;
+            coachColor = "#34D399";
+          } else if (completionRate >= 50) {
+            coachTitle = "Bonne journée 👍";
+            coachMessage = `${doneTasks} tâches accomplies sur ${totalTasks}, c'est une moitié pleine. Demain, essayez peut-être de réduire le nombre de tâches ou d'allonger leur durée pour finir en beauté.`;
+            coachColor = "#FBBF24";
+          } else if (completionRate > 0) {
+            coachTitle = "Une journée d'apprentissage";
+            coachMessage = `Vous avez validé ${doneTasks} tâche${doneTasks > 1 ? "s" : ""} sur ${totalTasks}. Pas de jugement : peut-être que votre planning était trop ambitieux. Réajustez pour demain, c'est ça qui compte.`;
+            coachColor = "#FB923C";
+          } else {
+            coachTitle = "Demain est un nouveau jour";
+            coachMessage = `Aucune tâche validée aujourd'hui. C'est OK, ça arrive. L'important c'est de revenir demain avec un plan plus simple. Petits pas, grandes victoires.`;
+            coachColor = "#F472B6";
+          }
+
+          return (
+            <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[80] flex items-end sm:items-center justify-center p-4">
+              <div className="bg-neutral-900 border rounded-3xl p-6 w-full max-w-sm max-h-[92vh] overflow-y-auto"
+                style={{ borderColor: dayTheme.accent + "50",
+                  boxShadow: `0 20px 80px ${dayTheme.accent}40` }}>
+
+                {/* Header */}
+                <div className="text-center mb-6">
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 mb-2">
+                    Bilan · {dayTheme.name}
+                  </p>
+                  <h3 className="text-2xl font-light mb-3">{coachTitle}</h3>
+
+                  {/* Big circular completion gauge */}
+                  <div className="relative w-36 h-36 mx-auto my-6">
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 144 144">
+                      <circle cx="72" cy="72" r="64" stroke="rgba(255,255,255,0.05)" strokeWidth="6" fill="none" />
+                      <circle cx="72" cy="72" r="64" stroke={coachColor} strokeWidth="6" fill="none"
+                        strokeLinecap="round"
+                        strokeDasharray={2 * Math.PI * 64}
+                        strokeDashoffset={2 * Math.PI * 64 - (completionRate / 100) * 2 * Math.PI * 64}
+                        style={{
+                          filter: `drop-shadow(0 0 12px ${coachColor})`,
+                          transition: "stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)",
+                        }} />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <p className="text-4xl font-extralight font-mono tabular-nums" style={{ color: coachColor }}>
+                        {completionRate}<span className="text-xl text-white/40">%</span>
+                      </p>
+                      <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">
+                        respecté
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Coaching message */}
+                <p className="text-sm text-white/70 leading-relaxed text-center px-2 mb-6 italic">
+                  {coachMessage}
+                </p>
+
+                {/* Stats grid */}
+                <div className="grid grid-cols-2 gap-2.5 mb-5">
+                  <div className="rounded-xl p-3 border"
+                    style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-white/40 mb-1">Validées</p>
+                    <p className="text-lg font-light">
+                      <span style={{ color: dayTheme.accent }}>{doneTasks}</span>
+                      <span className="text-white/40"> / {totalTasks}</span>
+                    </p>
+                  </div>
+                  <div className="rounded-xl p-3 border"
+                    style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-white/40 mb-1">Travail</p>
+                    <p className="text-lg font-light font-mono tabular-nums">
+                      {Math.floor(workMin / 60)}h{String(workMin % 60).padStart(2, "0")}
+                    </p>
+                  </div>
+                  <div className="rounded-xl p-3 border"
+                    style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-white/40 mb-1">Pause</p>
+                    <p className="text-lg font-light font-mono tabular-nums">
+                      {pauseMin > 0 ? `${pauseMin} min` : "Aucune"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl p-3 border"
+                    style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-white/40 mb-1">Retard</p>
+                    <p className="text-lg font-light font-mono tabular-nums"
+                      style={{ color: delayMin > 30 ? "#F87171" : delayMin > 10 ? "#FBBF24" : "#FFFFFF" }}>
+                      {delayMin > 0 ? `+${delayMin} min` : "0"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Skipped tasks indicator */}
+                {skippedTasks > 0 && (
+                  <p className="text-[11px] text-white/40 text-center mb-4 italic">
+                    {skippedTasks} tâche{skippedTasks > 1 ? "s" : ""} passée{skippedTasks > 1 ? "s" : ""}
+                  </p>
+                )}
+
+                {/* Actions */}
+                <button
+                  onClick={() => {
+                    setShowDaySummary(false);
+                    setShowStats(true);
+                  }}
+                  className="w-full py-3.5 rounded-xl text-sm font-medium transition hover:scale-[1.02] flex items-center justify-center gap-2"
+                  style={{ background: dayTheme.accent, color: "#000" }}
+                >
+                  <BarChart3 size={14} />
+                  Voir mes stats de la semaine
+                </button>
+                <button
+                  onClick={() => setShowDaySummary(false)}
+                  className="w-full mt-2 py-2.5 text-xs text-white/40 hover:text-white/70 transition"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* === PAUSE CONFIRMATION POPUP === */}
+        {showPauseConfirm && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[75] flex items-end sm:items-center justify-center p-4"
+            onClick={() => setShowPauseConfirm(false)}>
+            <div onClick={(e) => e.stopPropagation()}
+              className="bg-neutral-900 border rounded-3xl p-6 w-full max-w-sm"
+              style={{ borderColor: dayTheme.accent + "40",
+                boxShadow: `0 20px 60px ${dayTheme.accent}30` }}>
+              <div className="flex flex-col items-center text-center mb-6">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
+                  style={{ background: dayTheme.accent + "15",
+                    border: `1px solid ${dayTheme.accent}40` }}>
+                  <Pause size={20} style={{ color: dayTheme.accent }} fill={dayTheme.accent} />
+                </div>
+                <h3 className="text-xl font-light mb-2">Mettre en pause ?</h3>
+                <p className="text-sm text-white/60 leading-relaxed">
+                  Toutes les tâches restantes de la journée seront décalées du temps de votre pause.
+                </p>
+              </div>
+
+              <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={skipPauseConfirm}
+                  onChange={(e) => setSkipPauseConfirm(e.target.checked)}
+                  className="w-4 h-4 rounded accent-white/60 cursor-pointer"
+                />
+                <span className="text-xs text-white/50">Ne plus me demander</span>
+              </label>
+
+              <div className="space-y-2">
+                <button
+                  onClick={confirmPause}
+                  className="w-full py-3.5 rounded-xl text-sm font-medium transition hover:scale-[1.02]"
+                  style={{ background: dayTheme.accent, color: "#000" }}
+                >
+                  Mettre en pause
+                </button>
+                <button onClick={() => setShowPauseConfirm(false)}
+                  className="w-full py-2.5 text-xs text-white/40 hover:text-white/70 transition">
+                  Continuer la journée
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* === NO-TASKS WARNING POPUP === */}
         {showNoTasksWarning && (
