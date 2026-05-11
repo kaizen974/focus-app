@@ -1104,18 +1104,18 @@ export default function FocusApp() {
         <div className="relative z-10 w-full max-w-sm">
           <div className="text-center mb-10">
 
-            {/* === HOLOGRAPHIC BRAIN === */}
-            <div className="relative mx-auto mb-4 w-32 h-32 flex items-center justify-center"
+            {/* === HOLOGRAPHIC HEAD (front-facing, neurons in upper skull) === */}
+            <div className="relative mx-auto mb-4 w-44 h-44 flex items-center justify-center"
               style={{ animation: "hologram-flicker 4s ease-in-out infinite" }}>
               {/* Soft glow halo behind */}
-              <div className="absolute inset-0 rounded-full blur-2xl opacity-60"
+              <div className="absolute inset-0 rounded-full blur-3xl opacity-50"
                 style={{
                   background: "radial-gradient(circle, #A78BFA 0%, transparent 70%)",
-                  animation: "hologram-color 8s linear infinite, brain-pulse 3s ease-in-out infinite",
+                  animation: "brain-pulse 3s ease-in-out infinite",
                 }} />
 
               {/* Scanning line effect */}
-              <div className="absolute inset-0 rounded-full overflow-hidden opacity-40">
+              <div className="absolute inset-0 rounded-full overflow-hidden opacity-40 pointer-events-none">
                 <div className="absolute inset-x-0 h-0.5"
                   style={{
                     background: "linear-gradient(90deg, transparent, #A78BFA, transparent)",
@@ -1124,129 +1124,194 @@ export default function FocusApp() {
                   }} />
               </div>
 
-              {/* The brain — realistic anatomical SVG with pulsation */}
-              <div style={{
-                animation: "brain-breathe 4s ease-in-out infinite, hologram-color 8s linear infinite",
-              }}>
-                <svg width="110" height="100" viewBox="0 0 220 200" fill="none">
+              {/* The front-facing head */}
+              <div style={{ animation: "brain-breathe 4s ease-in-out infinite" }}>
+                <svg width="170" height="170" viewBox="0 0 200 220" fill="none">
                   <defs>
-                    {/* Sweeping highlight gradient that travels across */}
-                    <linearGradient id="brainHighlight" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#A78BFA" stopOpacity="0.3" />
-                      <stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.95" />
-                      <stop offset="100%" stopColor="#A78BFA" stopOpacity="0.3" />
+                    <filter id="signupNeon" x="-100%" y="-100%" width="300%" height="300%">
+                      <feGaussianBlur stdDeviation="2" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                    <filter id="signupNodeGlow" x="-100%" y="-100%" width="300%" height="300%">
+                      <feGaussianBlur stdDeviation="1.2" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                    {/* Sweeping highlight for the neon outline */}
+                    <linearGradient id="signupSweep" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0" />
+                      <stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.8" />
+                      <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
                       <animate attributeName="x1" values="-100%;100%" dur="4s" repeatCount="indefinite" />
                       <animate attributeName="x2" values="0%;200%" dur="4s" repeatCount="indefinite" />
                     </linearGradient>
-
-                    {/* Soft cerebral fill */}
-                    <radialGradient id="brainFill" cx="50%" cy="40%" r="60%">
-                      <stop offset="0%" stopColor="#A78BFA" stopOpacity="0.18" />
-                      <stop offset="100%" stopColor="#A78BFA" stopOpacity="0.04" />
-                    </radialGradient>
                   </defs>
 
-                  {/* === CORTEX OUTER SHAPE (anatomical brain silhouette, side view) === */}
-                  {/* Main cerebrum outline */}
-                  <path
-                    d="M 110 30
-                       C 70 30, 35 50, 28 85
-                       C 22 110, 30 135, 45 152
-                       C 55 162, 70 168, 88 168
-                       L 92 165
-                       C 95 170, 105 172, 115 170
-                       C 130 175, 150 172, 165 162
-                       C 185 150, 195 125, 192 100
-                       C 195 75, 180 50, 155 38
-                       C 138 30, 122 28, 110 30 Z"
-                    fill="url(#brainFill)"
-                    stroke="#A78BFA"
-                    strokeWidth="1.5"
-                    strokeLinejoin="round"
-                  />
-
-                  {/* === CEREBRAL FOLDS (gyri & sulci) — these make it actually look like a brain === */}
-                  <g stroke="#A78BFA" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.85">
-                    {/* Top frontal lobe folds */}
-                    <path d="M 60 50 Q 75 42, 88 50 Q 95 58, 88 65 Q 75 70, 65 62" />
-                    <path d="M 95 42 Q 110 38, 125 45 Q 132 52, 122 60 Q 108 62, 100 55" />
-                    <path d="M 135 45 Q 150 42, 165 52 Q 170 60, 160 67 Q 145 68, 138 60" />
-
-                    {/* Middle / central sulcus zone */}
-                    <path d="M 50 80 Q 65 78, 72 88 Q 68 98, 55 95 Q 45 90, 50 80 Z" />
-                    <path d="M 80 78 Q 95 75, 105 85 Q 100 95, 88 95 Q 78 90, 80 78 Z" />
-                    <path d="M 115 78 Q 130 75, 140 85 Q 135 95, 122 95 Q 112 90, 115 78 Z" />
-                    <path d="M 150 78 Q 165 78, 172 88 Q 168 98, 155 95 Q 145 90, 150 80" />
-
-                    {/* Lower / parietal & temporal folds */}
-                    <path d="M 45 110 Q 60 108, 70 118 Q 65 128, 52 125 Q 42 120, 45 110" />
-                    <path d="M 78 108 Q 95 105, 105 115 Q 100 128, 85 128 Q 75 122, 78 108" />
-                    <path d="M 115 108 Q 132 105, 142 115 Q 138 128, 122 128 Q 112 122, 115 108" />
-                    <path d="M 152 108 Q 170 108, 178 120 Q 172 130, 158 128 Q 148 120, 152 108" />
-
-                    {/* Bottom temporal folds */}
-                    <path d="M 60 138 Q 75 138, 85 148 Q 80 158, 68 156 Q 58 150, 60 138" />
-                    <path d="M 95 140 Q 112 138, 122 148 Q 118 158, 105 158 Q 92 152, 95 140" />
-                    <path d="M 132 138 Q 148 138, 158 148 Q 152 158, 138 156 Q 128 150, 132 138" />
-
-                    {/* Central longitudinal fissure (subtle) */}
-                    <path d="M 110 35 Q 108 80, 110 130 Q 112 155, 110 168" opacity="0.5" strokeDasharray="3 3" />
+                  {/* === HEAD: front-facing minimal neon outline === */}
+                  <g filter="url(#signupNeon)" stroke="#A78BFA" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                    {/* Skull / face outline (oval head with chin and ears bumps) */}
+                    <path d="M 100 18
+                             C 70 18, 48 32, 44 60
+                             C 42 72, 44 88, 50 102
+                             L 50 114
+                             C 46 116, 44 122, 46 128
+                             C 48 134, 53 136, 56 134
+                             L 58 138
+                             C 60 152, 68 168, 78 176
+                             C 80 178, 78 184, 82 186
+                             C 88 192, 96 194, 100 194
+                             C 104 194, 112 192, 118 186
+                             C 122 184, 120 178, 122 176
+                             C 132 168, 140 152, 142 138
+                             L 144 134
+                             C 147 136, 152 134, 154 128
+                             C 156 122, 154 116, 150 114
+                             L 150 102
+                             C 156 88, 158 72, 156 60
+                             C 152 32, 130 18, 100 18 Z" />
+                    {/* Closed eyes — gentle curves */}
+                    <path d="M 73 88 Q 80 84, 88 88" />
+                    <path d="M 112 88 Q 120 84, 127 88" />
+                    {/* Nose — thin elegant line */}
+                    <path d="M 100 95 L 96 125 Q 96 130, 102 130" />
+                    {/* Mouth — slight smile */}
+                    <path d="M 88 152 Q 100 156, 112 152" />
+                    {/* Lower lip line */}
+                    <path d="M 92 158 Q 100 162, 108 158" opacity="0.6" />
                   </g>
 
-                  {/* === SHINY HIGHLIGHT SWEEP — moving light reflection === */}
+                  {/* Sweeping highlight on the head (animated light reflection) */}
                   <path
-                    d="M 110 30
-                       C 70 30, 35 50, 28 85
-                       C 22 110, 30 135, 45 152
-                       C 55 162, 70 168, 88 168
-                       L 92 165
-                       C 95 170, 105 172, 115 170
-                       C 130 175, 150 172, 165 162
-                       C 185 150, 195 125, 192 100
-                       C 195 75, 180 50, 155 38
-                       C 138 30, 122 28, 110 30 Z"
-                    fill="url(#brainHighlight)"
-                    opacity="0.35"
-                    style={{ mixBlendMode: "screen" }}
+                    d="M 100 18
+                       C 70 18, 48 32, 44 60
+                       C 42 72, 44 88, 50 102
+                       L 50 114
+                       C 46 116, 44 122, 46 128
+                       C 48 134, 53 136, 56 134
+                       L 58 138
+                       C 60 152, 68 168, 78 176
+                       C 80 178, 78 184, 82 186
+                       C 88 192, 96 194, 100 194
+                       C 104 194, 112 192, 118 186
+                       C 122 184, 120 178, 122 176
+                       C 132 168, 140 152, 142 138
+                       L 144 134
+                       C 147 136, 152 134, 154 128
+                       C 156 122, 154 116, 150 114
+                       L 150 102
+                       C 156 88, 158 72, 156 60
+                       C 152 32, 130 18, 100 18 Z"
+                    stroke="url(#signupSweep)"
+                    strokeWidth="1.8"
+                    fill="none"
+                    opacity="0.8"
                   />
 
-                  {/* === GLOWING SYNAPSES === */}
-                  <g fill="#FFFFFF">
-                    <circle cx="75" cy="55" r="1.8" opacity="0.95">
-                      <animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="130" cy="50" r="1.5" opacity="0.9">
-                      <animate attributeName="opacity" values="1;0.3;1" dur="2.5s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="60" cy="100" r="1.6" opacity="0.85">
-                      <animate attributeName="opacity" values="0.3;1;0.3" dur="3s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="155" cy="95" r="1.7" opacity="0.95">
-                      <animate attributeName="opacity" values="1;0.4;1" dur="2.2s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="100" cy="85" r="2" opacity="1">
-                      <animate attributeName="opacity" values="0.5;1;0.5" dur="1.8s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="125" cy="120" r="1.6" opacity="0.9">
-                      <animate attributeName="opacity" values="1;0.3;1" dur="2.7s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="80" cy="140" r="1.5" opacity="0.8">
-                      <animate attributeName="opacity" values="0.4;1;0.4" dur="3.2s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="145" cy="145" r="1.7" opacity="0.9">
-                      <animate attributeName="opacity" values="1;0.3;1" dur="2.4s" repeatCount="indefinite" />
-                    </circle>
+                  {/* === NEURAL NETWORK in upper skull === */}
+                  {/* Static deterministic network — like the reference image */}
+                  <g stroke="#A78BFA" strokeWidth="0.6" opacity="0.7">
+                    {/* Network connections */}
+                    <line x1="75" y1="42" x2="92" y2="48" />
+                    <line x1="92" y1="48" x2="100" y2="35" />
+                    <line x1="100" y1="35" x2="115" y2="48" />
+                    <line x1="115" y1="48" x2="128" y2="42" />
+                    <line x1="75" y1="42" x2="68" y2="58" />
+                    <line x1="68" y1="58" x2="82" y2="62" />
+                    <line x1="82" y1="62" x2="92" y2="48" />
+                    <line x1="82" y1="62" x2="100" y2="58" />
+                    <line x1="100" y1="58" x2="115" y2="48" />
+                    <line x1="100" y1="58" x2="118" y2="62" />
+                    <line x1="118" y1="62" x2="128" y2="42" />
+                    <line x1="118" y1="62" x2="132" y2="58" />
+                    <line x1="68" y1="58" x2="62" y2="72" />
+                    <line x1="62" y1="72" x2="78" y2="76" />
+                    <line x1="78" y1="76" x2="82" y2="62" />
+                    <line x1="78" y1="76" x2="92" y2="80" />
+                    <line x1="92" y1="80" x2="100" y2="58" />
+                    <line x1="92" y1="80" x2="108" y2="80" />
+                    <line x1="108" y1="80" x2="118" y2="62" />
+                    <line x1="108" y1="80" x2="122" y2="76" />
+                    <line x1="122" y1="76" x2="132" y2="58" />
+                    <line x1="122" y1="76" x2="138" y2="72" />
+                    <line x1="138" y1="72" x2="132" y2="58" />
+                    <line x1="62" y1="72" x2="58" y2="86" />
+                    <line x1="58" y1="86" x2="72" y2="92" />
+                    <line x1="72" y1="92" x2="78" y2="76" />
+                    <line x1="72" y1="92" x2="88" y2="92" />
+                    <line x1="88" y1="92" x2="92" y2="80" />
+                    <line x1="88" y1="92" x2="100" y2="98" />
+                    <line x1="100" y1="98" x2="112" y2="92" />
+                    <line x1="112" y1="92" x2="108" y2="80" />
+                    <line x1="112" y1="92" x2="128" y2="92" />
+                    <line x1="128" y1="92" x2="122" y2="76" />
+                    <line x1="128" y1="92" x2="142" y2="86" />
+                    <line x1="142" y1="86" x2="138" y2="72" />
+                    <line x1="100" y1="35" x2="100" y2="58" />
+                    <line x1="58" y1="86" x2="62" y2="100" />
+                    <line x1="142" y1="86" x2="138" y2="100" />
+                    <line x1="62" y1="100" x2="78" y2="100" />
+                    <line x1="78" y1="100" x2="100" y2="98" />
+                    <line x1="100" y1="98" x2="122" y2="100" />
+                    <line x1="122" y1="100" x2="138" y2="100" />
+                    {/* Vertical connection drips down from neurons */}
+                    <line x1="92" y1="48" x2="92" y2="78" opacity="0.5" />
+                    <line x1="115" y1="48" x2="115" y2="78" opacity="0.5" />
                   </g>
+
+                  {/* === GLOWING NODES (synapses) === */}
+                  <g filter="url(#signupNodeGlow)">
+                    {[
+                      { cx: 75, cy: 42, r: 2 },
+                      { cx: 92, cy: 48, r: 2.2 },
+                      { cx: 100, cy: 35, r: 2.5 },
+                      { cx: 115, cy: 48, r: 2.2 },
+                      { cx: 128, cy: 42, r: 2 },
+                      { cx: 68, cy: 58, r: 1.8 },
+                      { cx: 82, cy: 62, r: 1.8 },
+                      { cx: 100, cy: 58, r: 2.4 },
+                      { cx: 118, cy: 62, r: 1.8 },
+                      { cx: 132, cy: 58, r: 1.8 },
+                      { cx: 62, cy: 72, r: 1.6 },
+                      { cx: 78, cy: 76, r: 1.8 },
+                      { cx: 92, cy: 80, r: 2 },
+                      { cx: 108, cy: 80, r: 2 },
+                      { cx: 122, cy: 76, r: 1.8 },
+                      { cx: 138, cy: 72, r: 1.6 },
+                      { cx: 58, cy: 86, r: 1.5 },
+                      { cx: 72, cy: 92, r: 1.6 },
+                      { cx: 88, cy: 92, r: 1.6 },
+                      { cx: 100, cy: 98, r: 2.2 },
+                      { cx: 112, cy: 92, r: 1.6 },
+                      { cx: 128, cy: 92, r: 1.6 },
+                      { cx: 142, cy: 86, r: 1.5 },
+                      { cx: 62, cy: 100, r: 1.2 },
+                      { cx: 78, cy: 100, r: 1.4 },
+                      { cx: 122, cy: 100, r: 1.4 },
+                      { cx: 138, cy: 100, r: 1.2 },
+                    ].map((n, i) => (
+                      <circle key={i} cx={n.cx} cy={n.cy} r={n.r} fill="#FFFFFF"
+                        style={{ filter: `drop-shadow(0 0 4px #A78BFA)` }}>
+                        <animate attributeName="opacity"
+                          values="0.55;1;0.55"
+                          dur={`${1.8 + (i % 5) * 0.4}s`}
+                          repeatCount="indefinite"
+                          begin={`${(i * 0.13) % 3}s`} />
+                      </circle>
+                    ))}
+                  </g>
+
+                  {/* Holographic projection base */}
+                  <ellipse cx="100" cy="210" rx="50" ry="3" fill="#A78BFA" opacity="0.5"
+                    style={{ filter: "blur(3px)" }} />
+                  <ellipse cx="100" cy="211" rx="28" ry="1.5" fill="#A78BFA" opacity="0.85"
+                    style={{ filter: "blur(1px)" }} />
                 </svg>
               </div>
-
-              {/* Holographic projection base — soft glowing line at the bottom */}
-              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-20 h-1 rounded-full opacity-70"
-                style={{
-                  background: "linear-gradient(90deg, transparent, #A78BFA, transparent)",
-                  filter: "blur(2px)",
-                  animation: "hologram-color 8s linear infinite",
-                }} />
             </div>
 
             <h1 className="text-5xl font-light tracking-tight">focus<span className="text-violet-400">.</span></h1>
