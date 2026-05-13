@@ -7,18 +7,159 @@ import {
   Upload, Headphones, Search, Briefcase, Dumbbell, Utensils, BookOpen,
   Bike, Waves, Mountain, Activity, Footprints, Target, ShoppingCart,
   Home, GraduationCap, Palette, Pill, Plane, Users, Phone, Hammer,
-  Check, Plus as PlusIcon
+  Check, CalendarPlus, RotateCcw, Plus
 } from "lucide-react";
 
-const DAY_THEMES = [
-  { name: "Lundi",    short: "Lun", glow: "#A78BFA", accent: "#A78BFA", mood: "Recommencement" },
-  { name: "Mardi",    short: "Mar", glow: "#60A5FA", accent: "#60A5FA", mood: "Concentration" },
-  { name: "Mercredi", short: "Mer", glow: "#34D399", accent: "#34D399", mood: "Équilibre" },
-  { name: "Jeudi",    short: "Jeu", glow: "#FBBF24", accent: "#FBBF24", mood: "Élan" },
-  { name: "Vendredi", short: "Ven", glow: "#FB923C", accent: "#FB923C", mood: "Énergie" },
-  { name: "Samedi",   short: "Sam", glow: "#F472B6", accent: "#F472B6", mood: "Liberté" },
-  { name: "Dimanche", short: "Dim", glow: "#94A3B8", accent: "#94A3B8", mood: "Repos" },
+const DAY_NAMES = [
+  { name: "Lundi",    short: "Lun", mood: "Recommencement" },
+  { name: "Mardi",    short: "Mar", mood: "Concentration" },
+  { name: "Mercredi", short: "Mer", mood: "Équilibre" },
+  { name: "Jeudi",    short: "Jeu", mood: "Élan" },
+  { name: "Vendredi", short: "Ven", mood: "Énergie" },
+  { name: "Samedi",   short: "Sam", mood: "Liberté" },
+  { name: "Dimanche", short: "Dim", mood: "Repos" },
 ];
+
+// Color palettes — each defines 7 colors (one per day of the week)
+const CUSTOM_THEMES = {
+  default: {
+    label: "Original",
+    description: "Le thème classique de Focus",
+    colors: ["#A78BFA", "#60A5FA", "#34D399", "#FBBF24", "#FB923C", "#F472B6", "#94A3B8"],
+  },
+  ocean: {
+    label: "Océan",
+    description: "Bleus profonds, calme et sérénité",
+    colors: ["#67E8F9", "#06B6D4", "#3B82F6", "#6366F1", "#8B5CF6", "#A78BFA", "#C7D2FE"],
+  },
+  forest: {
+    label: "Forêt",
+    description: "Verts naturels, ancrage et croissance",
+    colors: ["#86EFAC", "#34D399", "#10B981", "#059669", "#65A30D", "#A3E635", "#D9F99D"],
+  },
+  sunset: {
+    label: "Crépuscule",
+    description: "Couleurs chaudes du coucher de soleil",
+    colors: ["#FCA5A5", "#F87171", "#FB923C", "#FBBF24", "#F59E0B", "#EC4899", "#F472B6"],
+  },
+  rose: {
+    label: "Rose tendre",
+    description: "Doux et romantique",
+    colors: ["#FBCFE8", "#F9A8D4", "#F472B6", "#EC4899", "#DB2777", "#BE185D", "#FECDD3"],
+  },
+  monochrome: {
+    label: "Monochrome",
+    description: "Élégance pure, niveaux de gris",
+    colors: ["#E5E5E5", "#D4D4D4", "#A3A3A3", "#737373", "#525252", "#404040", "#262626"],
+  },
+};
+
+// Helper that returns the active DAY_THEMES based on the current custom theme
+const getDayThemes = (themeKey) => {
+  const palette = CUSTOM_THEMES[themeKey] || CUSTOM_THEMES.default;
+  return DAY_NAMES.map((d, i) => ({
+    ...d,
+    glow: palette.colors[i],
+    accent: palette.colors[i],
+  }));
+};
+
+const DAY_THEMES = getDayThemes("default"); // initial export, will be overridden by hook
+
+// === SOLAR AMBIANCE ===
+// Returns a light atmosphere object based on the current real hour.
+// Sun position is expressed as a vertical percentage (0% = top, 100% = bottom).
+const getSolarAmbiance = (date) => {
+  const h = date.getHours() + date.getMinutes() / 60; // fractional hour 0..24
+
+  // Night: 0–5 and 22–24
+  if (h < 5 || h >= 22) {
+    return {
+      phase: "night",
+      sunY: 110, // off-screen below
+      coreOpacity: 0,
+      haloOpacity: 0,
+      bgGradient: "transparent",
+      glowColor: "transparent",
+      glowIntensity: 0,
+    };
+  }
+
+  // Dawn: 5–7
+  if (h < 7) {
+    const t = (h - 5) / 2; // 0→1
+    return {
+      phase: "dawn",
+      sunY: 18 - t * 6,          // 18% → 12%
+      coreOpacity: 0.10 + t * 0.12,
+      haloOpacity: 0.18 + t * 0.15,
+      bgGradient: `radial-gradient(ellipse 80% 40% at 50% ${18 - t * 6}%, rgba(251,113,133,${0.10 + t * 0.08}) 0%, rgba(251,146,60,${0.07 + t * 0.06}) 30%, transparent 70%)`,
+      glowColor: `rgba(251,146,60,${0.12 + t * 0.10})`,
+      glowIntensity: 0.15 + t * 0.15,
+      accentColor: "#FB923C",
+    };
+  }
+
+  // Morning: 7–11
+  if (h < 11) {
+    const t = (h - 7) / 4; // 0→1
+    return {
+      phase: "morning",
+      sunY: 12 - t * 4,           // 12% → 8%
+      coreOpacity: 0.22 + t * 0.10,
+      haloOpacity: 0.33 + t * 0.08,
+      bgGradient: `radial-gradient(ellipse 70% 35% at 50% ${12 - t * 4}%, rgba(253,186,116,${0.12 + t * 0.06}) 0%, rgba(251,146,60,${0.08 + t * 0.04}) 35%, transparent 65%)`,
+      glowColor: `rgba(253,186,116,${0.18 + t * 0.08})`,
+      glowIntensity: 0.30 + t * 0.12,
+      accentColor: "#FCD34D",
+    };
+  }
+
+  // Midday: 11–14
+  if (h < 14) {
+    const t = (h - 11) / 3; // 0→1
+    return {
+      phase: "midday",
+      sunY: 8 + t * 8,             // 8% → 16% (slightly more centered than top)
+      coreOpacity: 0.32 + t * 0.04,
+      haloOpacity: 0.41 - t * 0.04,
+      bgGradient: `radial-gradient(ellipse 60% 30% at 50% ${8 + t * 8}%, rgba(253,230,138,${0.14}) 0%, rgba(251,191,36,${0.08}) 40%, transparent 65%)`,
+      glowColor: `rgba(253,230,138,${0.22})`,
+      glowIntensity: 0.42,
+      accentColor: "#FDE68A",
+    };
+  }
+
+  // Afternoon: 14–18
+  if (h < 18) {
+    const t = (h - 14) / 4; // 0→1
+    return {
+      phase: "afternoon",
+      sunY: 16 + t * 20,           // 16% → 36%
+      coreOpacity: 0.36 - t * 0.10,
+      haloOpacity: 0.37 - t * 0.06,
+      bgGradient: `radial-gradient(ellipse 65% 35% at 50% ${16 + t * 20}%, rgba(251,191,36,${0.12 - t * 0.04}) 0%, rgba(251,146,60,${0.08 - t * 0.02}) 40%, transparent 65%)`,
+      glowColor: `rgba(251,146,60,${0.18 - t * 0.06})`,
+      glowIntensity: 0.42 - t * 0.12,
+      accentColor: "#FBBF24",
+    };
+  }
+
+  // Sunset / dusk: 18–22
+  {
+    const t = (h - 18) / 4; // 0→1
+    return {
+      phase: "sunset",
+      sunY: 36 + t * 40,           // 36% → 76% (sinking toward bottom)
+      coreOpacity: 0.26 - t * 0.20,
+      haloOpacity: 0.31 - t * 0.25,
+      bgGradient: `radial-gradient(ellipse 75% 40% at 50% ${36 + t * 40}%, rgba(251,113,133,${0.14 - t * 0.12}) 0%, rgba(251,146,60,${0.12 - t * 0.10}) 30%, rgba(180,83,9,${0.06 - t * 0.05}) 55%, transparent 70%)`,
+      glowColor: `rgba(251,113,133,${0.16 - t * 0.14})`,
+      glowIntensity: 0.30 - t * 0.28,
+      accentColor: "#FB923C",
+    };
+  }
+};
 
 const todayIndex = () => {
   const d = new Date().getDay();
@@ -45,6 +186,26 @@ const MEDITATIONS = [
     description: "Démarrez la journée avec vitalité", script: "Sentez l'énergie circuler..." },
   { id: "sleep", name: "Détente du soir", duration: 12, icon: Moon, color: "#94A3B8",
     description: "Préparez le corps au sommeil", script: "Relâchez les tensions..." },
+];
+
+// Available icons for custom task templates
+const CUSTOM_TASK_ICONS = [
+  { key: "Zap", icon: Zap }, { key: "Star", icon: Sparkles }, { key: "Flame", icon: Flame },
+  { key: "Heart", icon: Heart }, { key: "Brain", icon: Brain }, { key: "Target", icon: Target },
+  { key: "Music", icon: Music }, { key: "Coffee", icon: Coffee }, { key: "Dumbbell", icon: Dumbbell },
+  { key: "Briefcase", icon: Briefcase }, { key: "BookOpen", icon: BookOpen }, { key: "Camera", icon: Camera },
+  { key: "Phone", icon: Phone }, { key: "Home", icon: Home }, { key: "Plane", icon: Plane },
+  { key: "ShoppingCart", icon: ShoppingCart }, { key: "Users", icon: Users }, { key: "Clock", icon: Clock },
+  { key: "Moon", icon: Moon }, { key: "Award", icon: Award }, { key: "Palette", icon: Palette },
+  { key: "Mountain", icon: Mountain }, { key: "Bike", icon: Bike }, { key: "GraduationCap", icon: GraduationCap },
+];
+
+// Preset color swatches for custom tasks
+const CUSTOM_TASK_COLORS = [
+  "#A78BFA", "#60A5FA", "#34D399", "#FBBF24", "#FB923C",
+  "#F472B6", "#F87171", "#22D3EE", "#A3E635", "#E879F9",
+  "#38BDF8", "#4ADE80", "#FCD34D", "#FDA4AF", "#C4B5FD",
+  "#6EE7B7", "#FCA5A1", "#93C5FD", "#FDE68A", "#FFFFFF",
 ];
 
 const TASK_CATEGORIES = [
@@ -107,6 +268,21 @@ const TASK_CATEGORIES = [
       { name: "Lecture loisir", icon: BookOpen }, { name: "Jeu vidéo", icon: Target },
       { name: "Film / Série", icon: Music },
     ] },
+  {
+    id: "break",
+    name: "Pause",
+    icon: Moon,
+    color: "#FFFFFF",
+    isPause: true, // special design flag
+    tagline: "Détendez-vous, prenez l'air et revenez en forme.",
+    subcategories: [
+      { name: "Pause courte", icon: Coffee },
+      { name: "Pause déjeuner", icon: Utensils },
+      { name: "Sieste", icon: Moon },
+      { name: "Promenade", icon: Footprints },
+      { name: "Air frais", icon: Wind },
+    ],
+  },
 ];
 
 const DEFAULT_TASKS = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
@@ -317,6 +493,8 @@ export default function FocusApp() {
   const [showStats, setShowStats] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
+  const [showCustomization, setShowCustomization] = useState(false);
+  const [customTheme, setCustomTheme] = useState("default"); // 'default' | 'ocean' | 'forest' | 'rose' | 'monochrome' | 'sunset'
   const [paymentForm, setPaymentForm] = useState({ cardNumber: "", expiry: "", cvc: "", name: "" });
   const logoTapsRef = useRef({ count: 0, lastTap: 0 });
   const [profileDraft, setProfileDraft] = useState(null);
@@ -328,6 +506,23 @@ export default function FocusApp() {
     const updated = typeof newTasks === "function" ? newTasks(tasks) : newTasks;
     setWeekTasks({ ...weekTasks, [selectedDay]: updated });
   };
+
+  // === FLOATING TASKS (sans horaire) — one list per day ===
+  // These never affect the main schedule
+  const DEFAULT_FLOATING = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+  const [weekFloatingTasks, setWeekFloatingTasks] = useState(DEFAULT_FLOATING);
+  const floatingTasks = weekFloatingTasks[selectedDay] || [];
+  const setFloatingTasks = (newList) => {
+    const updated = typeof newList === "function" ? newList(floatingTasks) : newList;
+    setWeekFloatingTasks({ ...weekFloatingTasks, [selectedDay]: updated });
+  };
+
+  // === CUSTOM REUSABLE TASKS ===
+  // Each: { id, name, color, durationMin, iconKey }
+  const [customTaskTemplates, setCustomTaskTemplates] = useState([]);
+  const [showCustomTaskEditor, setShowCustomTaskEditor] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null); // null = new, object = editing
+  const [templateForm, setTemplateForm] = useState({ name: "", color: "#A78BFA", durationMin: 30, iconKey: "Zap" });
 
   // === COMPLETION TRACKING ===
   // { dayIndex: { taskId: 'done' | 'skipped' } }
@@ -348,11 +543,23 @@ export default function FocusApp() {
   const [demoElapsed, setDemoElapsed] = useState(0);
   const [now, setNow] = useState(new Date());
   const [showAdd, setShowAdd] = useState(false);
+  const [isFloatingForm, setIsFloatingForm] = useState(false); // true = "sans horaire" mode
   const [editingTask, setEditingTask] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+
+  // === DRAG & DROP ===
+  const [dragState, setDragState] = useState(null);
+  const [swapToast, setSwapToast] = useState(null); // { nameA, nameB, ts }
+  // dragState = { taskId, startY, currentY, overTaskId }
+  const dragRefs = useRef({}); // taskId → DOM element ref
+  const dragLongPressTimer = useRef(null); // timer for long-press detection
+  const LONG_PRESS_MS = 350; // ms to hold before drag starts
   const [voiceOn, setVoiceOn] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const [taskForm, setTaskForm] = useState({ name: "", start: "", end: "", notes: "", meditationId: null, category: null, subcategory: null });
+
+  // === CONFLICT RESOLUTION ===
+  const [conflictDialog, setConflictDialog] = useState(null); // { type, pendingTask, conflicts, shift }
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [pickerStep, setPickerStep] = useState("category");
   const [pickedCategory, setPickedCategory] = useState(null);
@@ -380,9 +587,13 @@ export default function FocusApp() {
 
   // === NO-TASKS WARNING ===
   const [showNoTasksWarning, setShowNoTasksWarning] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // === VALIDATION BURST (visual feedback when a task is marked done) ===
   const [validationBurst, setValidationBurst] = useState(null);
+  // === TASK TRANSITION OVERLAY ===
+  // Shows briefly between two tasks: "Bravo ✓ Prochaine tâche : XYZ"
+  const [taskTransition, setTaskTransition] = useState(null); // { fromName, fromColor, toName, toColor, toStart }
 
   const [activeAmbient, setActiveAmbient] = useState(null);
   const [ambientVolume, setAmbientVolume] = useState(0.3);
@@ -393,7 +604,11 @@ export default function FocusApp() {
   const customAudioRef = useRef(null);
 
   const DEMO_TASK_DURATION = 30;
-  const dayTheme = DAY_THEMES[selectedDay];
+  // Solar ambiance — recomputed whenever `now` ticks (every second)
+  const solar = getSolarAmbiance(now);
+  // Active theme palette derived from customTheme state
+  const activeDayThemes = getDayThemes(customTheme);
+  const dayTheme = activeDayThemes[selectedDay];
 
   // === Audio: custom music ===
   useEffect(() => {
@@ -708,6 +923,7 @@ export default function FocusApp() {
 
   const openAdd = () => {
     setEditingTask(null);
+    setIsFloatingForm(false);
     // Pre-fill the start time with the latest task's end time, if any
     let suggestedStart = "";
     if (sortedTasks.length > 0) {
@@ -722,32 +938,418 @@ export default function FocusApp() {
     setShowAdd(true);
   };
 
-  const openEdit = (task) => {
-    setEditingTask(task);
+  const openAddFloating = (prefill = null) => {
+    setEditingTask(null);
+    setIsFloatingForm(true);
     setTaskForm({
-      name: task.name, start: task.start, end: task.end, notes: task.notes || "",
+      name: prefill?.name || "", start: "", end: "",
+      notes: prefill?.notes || "", meditationId: null,
+      category: prefill?.category || null, subcategory: prefill?.subcategory || null,
+    });
+    setShowAdd(true);
+  };
+
+  const openEdit = (task, floating = false) => {
+    setEditingTask(task);
+    setIsFloatingForm(floating);
+    setTaskForm({
+      name: task.name, start: task.start || "", end: task.end || "",
+      notes: task.notes || "",
       meditationId: task.meditationId || null,
       category: task.category || null, subcategory: task.subcategory || null,
     });
     setShowAdd(true);
   };
 
+  // === Helper: check if two time windows overlap ===
+  const overlaps = (aStart, aEnd, bStart, bEnd) => {
+    return toMin(aStart) < toMin(bEnd) && toMin(bStart) < toMin(aEnd);
+  };
+
+  // === Helper: find tasks that would conflict with given start/end ===
+  const findConflicts = (taskList, candidateStart, candidateEnd, excludeId = null) => {
+    return taskList.filter(t =>
+      t.id !== excludeId && overlaps(t.start, t.end, candidateStart, candidateEnd)
+    );
+  };
+
+  // === Helper: cascade-shift all tasks starting from a given time, by N minutes ===
+  // Tasks whose start >= reference time get pushed back by `shiftMin` minutes
+  const cascadeShift = (taskList, fromMinTime, shiftMin) => {
+    return taskList.map(t => {
+      if (toMin(t.start) >= fromMinTime) {
+        return {
+          ...t,
+          start: fromMin(toMin(t.start) + shiftMin),
+          end: fromMin(toMin(t.end) + shiftMin),
+        };
+      }
+      return t;
+    });
+  };
+
+  // === Helper: check if cascade would push any task past midnight ===
+  const cascadeWouldOverflow = (taskList, fromMinTime, shiftMin) => {
+    return taskList.some(t =>
+      toMin(t.start) >= fromMinTime && toMin(t.end) + shiftMin > 24 * 60
+    );
+  };
+
   const saveTask = () => {
-    if (!taskForm.name || !taskForm.start || !taskForm.end) return;
-    const cat = TASK_CATEGORIES.find(c => c.id === taskForm.category);
-    const taskColor = cat?.color || "#A78BFA";
-    if (editingTask) {
-      setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...taskForm, color: taskColor } : t));
-    } else {
-      setTasks([...tasks, { id: Date.now(), ...taskForm, color: taskColor }]);
+    // === FLOATING TASK (sans horaire) ===
+    if (isFloatingForm) {
+      if (!taskForm.name) return;
+      const cat = TASK_CATEGORIES.find(c => c.id === taskForm.category);
+      const taskColor = cat?.color || "#FB923C"; // default orange for floating
+      if (editingTask) {
+        setFloatingTasks(floatingTasks.map(t =>
+          t.id === editingTask.id ? { ...t, ...taskForm, color: taskColor } : t
+        ));
+      } else {
+        setFloatingTasks([...floatingTasks, {
+          id: Date.now(), ...taskForm, color: taskColor, floating: true
+        }]);
+      }
+      setShowAdd(false);
+      setEditingTask(null);
+      setIsFloatingForm(false);
+      return;
     }
+
+    if (!taskForm.name || !taskForm.start || !taskForm.end) return;
+    if (toMin(taskForm.start) >= toMin(taskForm.end)) {
+      setConflictDialog({
+        type: "invalid",
+        message: "L'heure de fin doit être après l'heure de début.",
+      });
+      return;
+    }
+    const cat = TASK_CATEGORIES.find(c => c.id === taskForm.category);
+    const taskColor = taskForm.customColor || cat?.color || "#A78BFA";
+
+    // ===== EDITING AN EXISTING TASK =====
+    if (editingTask) {
+      const otherTasks = tasks.filter(t => t.id !== editingTask.id);
+      const conflicts = findConflicts(otherTasks, taskForm.start, taskForm.end);
+
+      if (conflicts.length === 0) {
+        // No conflict → just save
+        setTasks(tasks.map(t => t.id === editingTask.id
+          ? { ...t, ...taskForm, color: taskColor }
+          : t));
+        // If we're editing the currently-running task or one already past, refresh detection
+        lastEndedRef.current.delete(editingTask.id);
+        setNow(new Date());
+        setShowAdd(false);
+        setEditingTask(null);
+        return;
+      }
+
+      // CONFLICT → propose cascade or cancel
+      // Calculate how much we'd need to push the first conflicting task
+      const earliestConflict = conflicts.reduce((earliest, t) =>
+        toMin(t.start) < toMin(earliest.start) ? t : earliest, conflicts[0]);
+      const shiftMin = toMin(taskForm.end) - toMin(earliestConflict.start);
+      const overflow = cascadeWouldOverflow(otherTasks, toMin(earliestConflict.start), shiftMin);
+
+      setConflictDialog({
+        type: "edit",
+        pendingTask: { ...editingTask, ...taskForm, color: taskColor },
+        conflicts,
+        shiftMin,
+        overflow,
+      });
+      return;
+    }
+
+    // ===== ADDING A NEW TASK =====
+    const conflicts = findConflicts(tasks, taskForm.start, taskForm.end);
+
+    if (conflicts.length === 0) {
+      // No conflict → just insert
+      setTasks([...tasks, { id: Date.now(), ...taskForm, color: taskColor }]);
+      setShowAdd(false);
+      return;
+    }
+
+    // Detect: if the new task COMPLETELY covers an existing one → that's absurd, block
+    const fullyCovered = conflicts.filter(t =>
+      toMin(taskForm.start) <= toMin(t.start) && toMin(taskForm.end) >= toMin(t.end)
+    );
+    if (fullyCovered.length > 0) {
+      setConflictDialog({
+        type: "fullyCovered",
+        pendingTask: { id: Date.now(), ...taskForm, color: taskColor },
+        conflicts: fullyCovered,
+      });
+      return;
+    }
+
+    // Otherwise: it's an insertion that pushes following tasks → cascade automatically
+    // (this matches the agreed UX: insertions cascade silently)
+    const earliestConflict = conflicts.reduce((earliest, t) =>
+      toMin(t.start) < toMin(earliest.start) ? t : earliest, conflicts[0]);
+    const shiftMin = toMin(taskForm.end) - toMin(earliestConflict.start);
+    const overflow = cascadeWouldOverflow(tasks, toMin(earliestConflict.start), shiftMin);
+
+    if (overflow) {
+      // Cascade would push past midnight → block
+      setConflictDialog({
+        type: "overflow",
+        pendingTask: { id: Date.now(), ...taskForm, color: taskColor },
+        shiftMin,
+      });
+      return;
+    }
+
+    // Safe to cascade
+    const shifted = cascadeShift(tasks, toMin(earliestConflict.start), shiftMin);
+    setTasks([...shifted, { id: Date.now(), ...taskForm, color: taskColor }]);
+    setShowAdd(false);
+  };
+
+  // Apply edit with cascade (called from conflict dialog "Cascade" choice)
+  const applyEditWithCascade = () => {
+    if (!conflictDialog || conflictDialog.type !== "edit") return;
+    const { pendingTask, shiftMin, conflicts } = conflictDialog;
+    const otherTasks = tasks.filter(t => t.id !== pendingTask.id);
+    const earliestConflictStart = Math.min(...conflicts.map(c => toMin(c.start)));
+    const shifted = cascadeShift(otherTasks, earliestConflictStart, shiftMin);
+    setTasks([...shifted, pendingTask]);
+    // Refresh "current task" detection and re-allow popup detection for shifted tasks
+    shifted.forEach(t => lastEndedRef.current.delete(t.id));
+    lastEndedRef.current.delete(pendingTask.id);
+    setNow(new Date());
+    setConflictDialog(null);
     setShowAdd(false);
     setEditingTask(null);
+  };
+
+  // === Detect existing conflicts in the current task list ===
+  // Returns array of conflict pairs: [{ taskA, taskB }, ...]
+  const detectExistingConflicts = () => {
+    const conflicts = [];
+    const sorted = [...tasks].sort((a, b) => toMin(a.start) - toMin(b.start));
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        if (overlaps(sorted[i].start, sorted[i].end, sorted[j].start, sorted[j].end)) {
+          conflicts.push({ taskA: sorted[i], taskB: sorted[j] });
+        }
+      }
+    }
+    return conflicts;
+  };
+  const existingConflicts = detectExistingConflicts();
+
+  // Auto-repair: cascade-shift to resolve all conflicts
+  const autoRepairConflicts = () => {
+    let working = [...tasks].sort((a, b) => toMin(a.start) - toMin(b.start));
+    let safety = 0;
+    while (safety < 50) {
+      safety++;
+      let foundConflict = false;
+      for (let i = 0; i < working.length - 1; i++) {
+        const cur = working[i];
+        const next = working[i + 1];
+        if (toMin(next.start) < toMin(cur.end)) {
+          const shift = toMin(cur.end) - toMin(next.start);
+          if (toMin(next.end) + shift > 24 * 60) {
+            // Cannot repair — would overflow midnight
+            return false;
+          }
+          working = working.map((t, idx) =>
+            idx > i ? {
+              ...t,
+              start: fromMin(toMin(t.start) + shift),
+              end: fromMin(toMin(t.end) + shift),
+            } : t
+          );
+          foundConflict = true;
+          break;
+        }
+      }
+      if (!foundConflict) break;
+    }
+    setTasks(working);
+    return true;
+  };
+
+  // === DRAG & DROP HANDLERS ===
+
+  // Swap timeslots between two tasks (exchanges start/end, keeps everything else)
+  const swapTaskTimes = (idA, idB) => {
+    const taskA = tasks.find(t => t.id === idA);
+    const taskB = tasks.find(t => t.id === idB);
+    if (!taskA || !taskB) return;
+
+    setTasks(tasks.map(t => {
+      if (t.id === idA) return { ...t, start: taskB.start, end: taskB.end };
+      if (t.id === idB) return { ...t, start: taskA.start, end: taskA.end };
+      return t;
+    }));
+
+    // Brief visual confirmation
+    setSwapToast({ nameA: taskA.name, nameB: taskB.name, ts: Date.now() });
+    setTimeout(() => setSwapToast(null), 2500);
+  };
+
+  // Get which task the pointer is currently hovering
+  const getTaskIdAtY = (y) => {
+    for (const [taskId, el] of Object.entries(dragRefs.current)) {
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (y >= rect.top && y <= rect.bottom) return taskId;
+    }
+    return null;
+  };
+
+  const onDragPointerMove = (clientY) => {
+    if (!dragState) return;
+    const overId = getTaskIdAtY(clientY);
+    setDragState(prev => ({
+      ...prev,
+      currentY: clientY,
+      overTaskId: overId && overId !== prev.taskId ? overId : null,
+    }));
+  };
+
+  const onDragPointerUp = () => {
+    if (!dragState) return;
+    if (dragState.overTaskId && dragState.overTaskId !== dragState.taskId) {
+      swapTaskTimes(dragState.taskId, dragState.overTaskId);
+      // Collapse both cards
+      setExpandedId(null);
+    }
+    setDragState(null);
+    dragLongPressTimer.current = null;
+    document.body.style.userSelect = "";
+  };
+
+  // Attach global move/up listeners when drag is active
+  useEffect(() => {
+    if (!dragState) return;
+    const onMouseMove = (e) => onDragPointerMove(e.clientY);
+    const onTouchMove = (e) => {
+      e.preventDefault();
+      onDragPointerMove(e.touches[0].clientY);
+    };
+    const onUp = () => onDragPointerUp();
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onUp);
+    };
+  }, [dragState, tasks]);
+
+  const startLongPress = (task, clientY) => {
+    dragLongPressTimer.current = setTimeout(() => {
+      // Vibrate if supported (mobile haptic feedback)
+      if (navigator.vibrate) navigator.vibrate(40);
+      document.body.style.userSelect = "none";
+      setExpandedId(null); // collapse open card
+      setDragState({ taskId: task.id, startY: clientY, currentY: clientY, overTaskId: null });
+    }, LONG_PRESS_MS);
+  };
+
+  const cancelLongPress = () => {
+    if (dragLongPressTimer.current) {
+      clearTimeout(dragLongPressTimer.current);
+      dragLongPressTimer.current = null;
+    }
+  };
+
+  // === CUSTOM TASK TEMPLATE CRUD ===
+  const openNewTemplate = () => {
+    setEditingTemplate(null);
+    setTemplateForm({ name: "", color: "#A78BFA", durationMin: 30, iconKey: "Zap" });
+    setShowCustomTaskEditor(true);
+  };
+
+  const openEditTemplate = (tpl) => {
+    setEditingTemplate(tpl);
+    setTemplateForm({ name: tpl.name, color: tpl.color, durationMin: tpl.durationMin, iconKey: tpl.iconKey });
+    setShowCustomTaskEditor(true);
+  };
+
+  const saveTemplate = () => {
+    if (!templateForm.name.trim()) return;
+    if (editingTemplate) {
+      setCustomTaskTemplates(customTaskTemplates.map(t =>
+        t.id === editingTemplate.id ? { ...t, ...templateForm } : t
+      ));
+    } else {
+      setCustomTaskTemplates([...customTaskTemplates, { id: Date.now(), ...templateForm }]);
+    }
+    setShowCustomTaskEditor(false);
+    setEditingTemplate(null);
+  };
+
+  const deleteTemplate = (id) => {
+    setCustomTaskTemplates(customTaskTemplates.filter(t => t.id !== id));
+  };
+
+  // Insert a custom template into the day's schedule
+  const insertTemplate = (tpl) => {
+    // Pre-fill form with template data; user still picks the time slot
+    let suggestedStart = "";
+    if (sortedTasks.length > 0) {
+      const lastTask = sortedTasks.reduce((latest, t) =>
+        toMin(t.end) > toMin(latest.end) ? t : latest, sortedTasks[0]);
+      suggestedStart = lastTask.end;
+    }
+    // Pre-calculate end time from duration
+    let suggestedEnd = "";
+    if (suggestedStart) {
+      suggestedEnd = fromMin(toMin(suggestedStart) + tpl.durationMin);
+    }
+    setIsFloatingForm(false);
+    setEditingTask(null);
+    setTaskForm({
+      name: tpl.name, start: suggestedStart, end: suggestedEnd,
+      notes: "", meditationId: null, category: null, subcategory: null,
+      customIconKey: tpl.iconKey, customColor: tpl.color,
+    });
+    setShowAdd(true);
+    setShowCategoryPicker(false);
   };
 
   const deleteTask = (id) => {
     setTasks(tasks.filter((t) => t.id !== id));
     if (expandedId === id) setExpandedId(null);
+  };
+
+  // === RESET DAY ===
+  const resetDay = () => {
+    // Clear tasks for current day
+    setWeekTasks({ ...weekTasks, [selectedDay]: [] });
+    // Clear completions for current day
+    setCompletions({ ...completions, [selectedDay]: {} });
+    // Clear metrics for current day
+    setDayMetrics(prev => ({ ...prev, [selectedDay]: {} }));
+    // Stop the day if running
+    setIsRunning(false);
+    setPausedAt(null);
+    setDemoMode(false);
+    setDemoElapsed(0);
+    // Clear refs
+    lastEndedRef.current.clear();
+    notifiedRef.current.clear();
+    summaryShownRef.current.delete(selectedDay);
+    popupOpenedAtRef.current = null;
+    popupTriggerKindRef.current = null;
+    // Close any open popup
+    setEndTaskPopup(null);
+    setShowExtendChoice(false);
+    setExpandedId(null);
+    setShowDaySummary(false);
+    setTaskTransition(null);
+    setShowResetConfirm(false);
   };
 
   const toggleDemo = () => {
@@ -772,21 +1374,43 @@ export default function FocusApp() {
         const pauseSec = Math.floor((Date.now() - pausedAt) / 1000);
         const pauseMin = Math.ceil(pauseSec / 60); // round up to next minute
         if (pauseMin > 0) {
-          // Shift all tasks that aren't fully passed yet
+          // The "pause snapshot time": when the user clicked pause (real-world time)
+          const pausedAtDate = new Date(pausedAt);
+          const pauseSnapMin = pausedAtDate.getHours() * 60 + pausedAtDate.getMinutes();
           const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+          // A task should be shifted if its end time is still in the future
+          // OR if it was supposed to run during the pause window (start was before now but task wasn't done).
           const updated = tasks.map(t => {
-            if (toMin(t.end) + pauseMin <= nowMin) return t;
-            // Task currently in progress when paused → push end time
-            if (toMin(t.start) <= nowMin && toMin(t.end) > nowMin) {
-              return { ...t, end: fromMin(toMin(t.end) + pauseMin) };
+            // Skip tasks already completed or marked
+            if (dayCompletions[t.id]) return t;
+
+            const tStart = toMin(t.start);
+            const tEnd = toMin(t.end);
+
+            // Case 1: task was fully in the past before pause started → no shift
+            if (tEnd <= pauseSnapMin) return t;
+
+            // Case 2: task was in progress when pause started (start <= pauseSnap < end)
+            //   → keep its start, push only the end
+            if (tStart <= pauseSnapMin && tEnd > pauseSnapMin) {
+              return { ...t, end: fromMin(tEnd + pauseMin) };
             }
-            // Task in the future → push both start and end
-            if (toMin(t.start) > nowMin) {
-              return { ...t, start: fromMin(toMin(t.start) + pauseMin), end: fromMin(toMin(t.end) + pauseMin) };
+
+            // Case 3: task was in the future relative to pause moment (start > pauseSnap)
+            //   → push BOTH start and end (this covers the "pause overshoots into next task" case)
+            if (tStart > pauseSnapMin) {
+              return {
+                ...t,
+                start: fromMin(tStart + pauseMin),
+                end: fromMin(tEnd + pauseMin),
+              };
             }
+
             return t;
           });
           setTasks(updated);
+          // Re-allow popup detection for any task whose end has moved into the future
           updated.forEach(t => {
             if (toMin(t.end) > nowMin) lastEndedRef.current.delete(t.id);
           });
@@ -923,6 +1547,35 @@ export default function FocusApp() {
     // kept for compatibility — actual logic now lives in the useEffect above
   };
 
+  // === Trigger the brief between-task transition overlay ===
+  // Called after a task is validated. Computes the next non-completed task and shows a 5s overlay.
+  const triggerTaskTransition = (completedTaskId, computedTasks = null) => {
+    const taskList = computedTasks || tasks;
+    const completedTask = taskList.find(t => t.id === completedTaskId);
+    if (!completedTask) return;
+
+    // Find the next task that is not already completed
+    const upcoming = [...taskList]
+      .sort((a, b) => toMin(a.start) - toMin(b.start))
+      .filter(t => t.id !== completedTaskId
+        && !dayCompletions[t.id]
+        && t.id !== completedTaskId);
+    const nextOne = upcoming[0];
+
+    // Only show transition if there is a next task
+    if (!nextOne) return;
+
+    setTaskTransition({
+      fromName: completedTask.name,
+      fromColor: completedTask.color,
+      toName: nextOne.name,
+      toColor: nextOne.color,
+      toStart: nextOne.start,
+    });
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => setTaskTransition(null), 5000);
+  };
+
   const markTaskDone = (taskId) => {
     setCompletions({
       ...completions,
@@ -937,6 +1590,8 @@ export default function FocusApp() {
     setEndTaskPopup(null);
     setShowExtendChoice(false);
     checkAndTriggerDaySummary(taskId);
+    // Show transition overlay if there's a next task
+    setTimeout(() => triggerTaskTransition(taskId), 1900);
   };
 
   const markTaskSkipped = (taskId) => {
@@ -948,6 +1603,8 @@ export default function FocusApp() {
     setEndTaskPopup(null);
     setShowExtendChoice(false);
     checkAndTriggerDaySummary(taskId);
+    // Show transition overlay if there's a next task
+    setTimeout(() => triggerTaskTransition(taskId), 400);
   };
 
   const extendTask = (task, minutesToAdd) => {
@@ -1029,6 +1686,8 @@ export default function FocusApp() {
     setShowExtendChoice(false);
     setNow(new Date()); // force immediate re-detection of next task
     checkAndTriggerDaySummary(task.id);
+    // Show transition overlay if there's a next task (use updated list)
+    setTimeout(() => triggerTaskTransition(task.id, updated), 1900);
   };
 
   const radius = 120;
@@ -1050,7 +1709,7 @@ export default function FocusApp() {
 
   const computeWeekGoal = () => {
     let totalDone = 0; let totalCount = 0;
-    DAY_THEMES.forEach((_, idx) => {
+    activeDayThemes.forEach((_, idx) => {
       const g = computeDayGoal(idx);
       totalDone += g.done;
       totalCount += g.total;
@@ -1068,7 +1727,7 @@ export default function FocusApp() {
   // === STATS ===
   // ============================================================
   const computeStats = () => {
-    const stats = DAY_THEMES.map((theme, idx) => {
+    const stats = activeDayThemes.map((theme, idx) => {
       const dayT = weekTasks[idx] || [];
       const totalMinutes = dayT.reduce((s, t) => s + (toMin(t.end) - toMin(t.start)), 0);
       const goal = computeDayGoal(idx);
@@ -1096,7 +1755,7 @@ export default function FocusApp() {
   if (!user) {
     return (
       <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden flex items-center justify-center p-6"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         <div className="absolute inset-0 opacity-40 pointer-events-none">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl bg-violet-500" />
           <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl bg-cyan-500 opacity-50" />
@@ -1104,198 +1763,118 @@ export default function FocusApp() {
         <div className="relative z-10 w-full max-w-sm">
           <div className="text-center mb-10">
 
-            {/* === HOLOGRAPHIC HEAD (front-facing, neurons in upper skull) === */}
-            <div className="relative mx-auto mb-4 w-44 h-44 flex items-center justify-center"
+
+            {/* === HOLOGRAPHIC BUDDHA HEAD === */}
+            <div className="relative mx-auto mb-3 w-16 h-20 flex items-center justify-center"
               style={{ animation: "hologram-flicker 4s ease-in-out infinite" }}>
-              {/* Soft glow halo behind */}
-              <div className="absolute inset-0 rounded-full blur-3xl opacity-50"
+              {/* Soft glow halo */}
+              <div className="absolute inset-0 rounded-full blur-2xl opacity-60"
                 style={{
                   background: "radial-gradient(circle, #A78BFA 0%, transparent 70%)",
                   animation: "brain-pulse 3s ease-in-out infinite",
                 }} />
 
-              {/* Scanning line effect */}
-              <div className="absolute inset-0 rounded-full overflow-hidden opacity-40 pointer-events-none">
-                <div className="absolute inset-x-0 h-0.5"
-                  style={{
-                    background: "linear-gradient(90deg, transparent, #A78BFA, transparent)",
-                    animation: "hologram-scan 3s linear infinite",
-                    boxShadow: "0 0 12px #A78BFA",
-                  }} />
-              </div>
-
-              {/* The front-facing head */}
               <div style={{ animation: "brain-breathe 4s ease-in-out infinite" }}>
-                <svg width="170" height="170" viewBox="0 0 200 220" fill="none">
+                <svg width="64" height="80" viewBox="0 0 100 130" fill="none">
                   <defs>
-                    <filter id="signupNeon" x="-100%" y="-100%" width="300%" height="300%">
-                      <feGaussianBlur stdDeviation="2" result="blur" />
-                      <feMerge>
-                        <feMergeNode in="blur" />
-                        <feMergeNode in="SourceGraphic" />
-                      </feMerge>
-                    </filter>
-                    <filter id="signupNodeGlow" x="-100%" y="-100%" width="300%" height="300%">
+                    <filter id="buddhaNeon" x="-100%" y="-100%" width="300%" height="300%">
                       <feGaussianBlur stdDeviation="1.2" result="blur" />
                       <feMerge>
                         <feMergeNode in="blur" />
                         <feMergeNode in="SourceGraphic" />
                       </feMerge>
                     </filter>
-                    {/* Sweeping highlight for the neon outline */}
-                    <linearGradient id="signupSweep" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0" />
-                      <stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.8" />
-                      <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
-                      <animate attributeName="x1" values="-100%;100%" dur="4s" repeatCount="indefinite" />
-                      <animate attributeName="x2" values="0%;200%" dur="4s" repeatCount="indefinite" />
-                    </linearGradient>
+                    <filter id="buddhaNodes" x="-100%" y="-100%" width="300%" height="300%">
+                      <feGaussianBlur stdDeviation="0.8" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
                   </defs>
 
-                  {/* === HEAD: front-facing minimal neon outline === */}
-                  <g filter="url(#signupNeon)" stroke="#A78BFA" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                    {/* Skull / face outline (oval head with chin and ears bumps) */}
-                    <path d="M 100 18
-                             C 70 18, 48 32, 44 60
-                             C 42 72, 44 88, 50 102
-                             L 50 114
-                             C 46 116, 44 122, 46 128
-                             C 48 134, 53 136, 56 134
-                             L 58 138
-                             C 60 152, 68 168, 78 176
-                             C 80 178, 78 184, 82 186
-                             C 88 192, 96 194, 100 194
-                             C 104 194, 112 192, 118 186
-                             C 122 184, 120 178, 122 176
-                             C 132 168, 140 152, 142 138
-                             L 144 134
-                             C 147 136, 152 134, 154 128
-                             C 156 122, 154 116, 150 114
-                             L 150 102
-                             C 156 88, 158 72, 156 60
-                             C 152 32, 130 18, 100 18 Z" />
-                    {/* Closed eyes — gentle curves */}
-                    <path d="M 73 88 Q 80 84, 88 88" />
-                    <path d="M 112 88 Q 120 84, 127 88" />
-                    {/* Nose — thin elegant line */}
-                    <path d="M 100 95 L 96 125 Q 96 130, 102 130" />
-                    {/* Mouth — slight smile */}
-                    <path d="M 88 152 Q 100 156, 112 152" />
+                  {/* === BUDDHA OUTLINE: face + topknot + ears === */}
+                  <g filter="url(#buddhaNeon)" stroke="#A78BFA" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                    {/* Topknot flame (ushnisha) */}
+                    <path d="M 50 4 L 47 12 Q 50 14, 53 12 L 50 4 Z" />
+                    {/* Topknot bun */}
+                    <ellipse cx="50" cy="20" rx="7" ry="6" />
+                    {/* Head dome */}
+                    <path d="M 50 26
+                             C 33 26, 24 38, 24 56
+                             C 24 70, 28 80, 34 86
+                             L 36 88
+                             C 38 96, 42 102, 46 105
+                             C 48 106, 52 106, 54 105
+                             C 58 102, 62 96, 64 88
+                             L 66 86
+                             C 72 80, 76 70, 76 56
+                             C 76 38, 67 26, 50 26 Z" />
+                    {/* Ears (extended buddha-style) */}
+                    <path d="M 26 60 C 22 62, 21 70, 24 76 C 26 80, 30 80, 32 78" />
+                    <path d="M 74 60 C 78 62, 79 70, 76 76 C 74 80, 70 80, 68 78" />
+                    {/* Bindi / third eye dot */}
+                    <circle cx="50" cy="64" r="1.2" fill="#A78BFA" stroke="none" />
+                    {/* Eyes — closed, gentle curves */}
+                    <path d="M 38 73 Q 42 70, 46 73" />
+                    <path d="M 54 73 Q 58 70, 62 73" />
+                    {/* Nose */}
+                    <path d="M 50 78 L 47 90 Q 47 92, 50 92" />
+                    {/* Mouth — slight serene smile */}
+                    <path d="M 44 99 Q 50 102, 56 99" />
                     {/* Lower lip line */}
-                    <path d="M 92 158 Q 100 162, 108 158" opacity="0.6" />
+                    <path d="M 46 102 Q 50 104, 54 102" opacity="0.6" />
                   </g>
 
-                  {/* Sweeping highlight on the head (animated light reflection) */}
-                  <path
-                    d="M 100 18
-                       C 70 18, 48 32, 44 60
-                       C 42 72, 44 88, 50 102
-                       L 50 114
-                       C 46 116, 44 122, 46 128
-                       C 48 134, 53 136, 56 134
-                       L 58 138
-                       C 60 152, 68 168, 78 176
-                       C 80 178, 78 184, 82 186
-                       C 88 192, 96 194, 100 194
-                       C 104 194, 112 192, 118 186
-                       C 122 184, 120 178, 122 176
-                       C 132 168, 140 152, 142 138
-                       L 144 134
-                       C 147 136, 152 134, 154 128
-                       C 156 122, 154 116, 150 114
-                       L 150 102
-                       C 156 88, 158 72, 156 60
-                       C 152 32, 130 18, 100 18 Z"
-                    stroke="url(#signupSweep)"
-                    strokeWidth="1.8"
-                    fill="none"
-                    opacity="0.8"
-                  />
-
-                  {/* === NEURAL NETWORK in upper skull === */}
-                  {/* Static deterministic network — like the reference image */}
-                  <g stroke="#A78BFA" strokeWidth="0.6" opacity="0.7">
-                    {/* Network connections */}
-                    <line x1="75" y1="42" x2="92" y2="48" />
-                    <line x1="92" y1="48" x2="100" y2="35" />
-                    <line x1="100" y1="35" x2="115" y2="48" />
-                    <line x1="115" y1="48" x2="128" y2="42" />
-                    <line x1="75" y1="42" x2="68" y2="58" />
-                    <line x1="68" y1="58" x2="82" y2="62" />
-                    <line x1="82" y1="62" x2="92" y2="48" />
-                    <line x1="82" y1="62" x2="100" y2="58" />
-                    <line x1="100" y1="58" x2="115" y2="48" />
-                    <line x1="100" y1="58" x2="118" y2="62" />
-                    <line x1="118" y1="62" x2="128" y2="42" />
-                    <line x1="118" y1="62" x2="132" y2="58" />
-                    <line x1="68" y1="58" x2="62" y2="72" />
-                    <line x1="62" y1="72" x2="78" y2="76" />
-                    <line x1="78" y1="76" x2="82" y2="62" />
-                    <line x1="78" y1="76" x2="92" y2="80" />
-                    <line x1="92" y1="80" x2="100" y2="58" />
-                    <line x1="92" y1="80" x2="108" y2="80" />
-                    <line x1="108" y1="80" x2="118" y2="62" />
-                    <line x1="108" y1="80" x2="122" y2="76" />
-                    <line x1="122" y1="76" x2="132" y2="58" />
-                    <line x1="122" y1="76" x2="138" y2="72" />
-                    <line x1="138" y1="72" x2="132" y2="58" />
-                    <line x1="62" y1="72" x2="58" y2="86" />
-                    <line x1="58" y1="86" x2="72" y2="92" />
-                    <line x1="72" y1="92" x2="78" y2="76" />
-                    <line x1="72" y1="92" x2="88" y2="92" />
-                    <line x1="88" y1="92" x2="92" y2="80" />
-                    <line x1="88" y1="92" x2="100" y2="98" />
-                    <line x1="100" y1="98" x2="112" y2="92" />
-                    <line x1="112" y1="92" x2="108" y2="80" />
-                    <line x1="112" y1="92" x2="128" y2="92" />
-                    <line x1="128" y1="92" x2="122" y2="76" />
-                    <line x1="128" y1="92" x2="142" y2="86" />
-                    <line x1="142" y1="86" x2="138" y2="72" />
-                    <line x1="100" y1="35" x2="100" y2="58" />
-                    <line x1="58" y1="86" x2="62" y2="100" />
-                    <line x1="142" y1="86" x2="138" y2="100" />
-                    <line x1="62" y1="100" x2="78" y2="100" />
-                    <line x1="78" y1="100" x2="100" y2="98" />
-                    <line x1="100" y1="98" x2="122" y2="100" />
-                    <line x1="122" y1="100" x2="138" y2="100" />
-                    {/* Vertical connection drips down from neurons */}
-                    <line x1="92" y1="48" x2="92" y2="78" opacity="0.5" />
-                    <line x1="115" y1="48" x2="115" y2="78" opacity="0.5" />
+                  {/* === NEURAL NETWORK on the upper skull (small, dense) === */}
+                  <g stroke="#A78BFA" strokeWidth="0.4" opacity="0.7">
+                    <line x1="40" y1="36" x2="46" y2="40" />
+                    <line x1="46" y1="40" x2="50" y2="34" />
+                    <line x1="50" y1="34" x2="54" y2="40" />
+                    <line x1="54" y1="40" x2="60" y2="36" />
+                    <line x1="40" y1="36" x2="36" y2="44" />
+                    <line x1="36" y1="44" x2="42" y2="46" />
+                    <line x1="42" y1="46" x2="46" y2="40" />
+                    <line x1="42" y1="46" x2="50" y2="44" />
+                    <line x1="50" y1="44" x2="54" y2="40" />
+                    <line x1="50" y1="44" x2="58" y2="46" />
+                    <line x1="58" y1="46" x2="60" y2="36" />
+                    <line x1="58" y1="46" x2="64" y2="44" />
+                    <line x1="36" y1="44" x2="34" y2="52" />
+                    <line x1="34" y1="52" x2="40" y2="54" />
+                    <line x1="40" y1="54" x2="42" y2="46" />
+                    <line x1="40" y1="54" x2="46" y2="56" />
+                    <line x1="46" y1="56" x2="50" y2="44" />
+                    <line x1="46" y1="56" x2="54" y2="56" />
+                    <line x1="54" y1="56" x2="58" y2="46" />
+                    <line x1="54" y1="56" x2="60" y2="54" />
+                    <line x1="60" y1="54" x2="64" y2="44" />
+                    <line x1="60" y1="54" x2="66" y2="52" />
+                    <line x1="66" y1="52" x2="64" y2="44" />
                   </g>
 
-                  {/* === GLOWING NODES (synapses) === */}
-                  <g filter="url(#signupNodeGlow)">
+                  {/* === GLOWING NODES === */}
+                  <g filter="url(#buddhaNodes)">
                     {[
-                      { cx: 75, cy: 42, r: 2 },
-                      { cx: 92, cy: 48, r: 2.2 },
-                      { cx: 100, cy: 35, r: 2.5 },
-                      { cx: 115, cy: 48, r: 2.2 },
-                      { cx: 128, cy: 42, r: 2 },
-                      { cx: 68, cy: 58, r: 1.8 },
-                      { cx: 82, cy: 62, r: 1.8 },
-                      { cx: 100, cy: 58, r: 2.4 },
-                      { cx: 118, cy: 62, r: 1.8 },
-                      { cx: 132, cy: 58, r: 1.8 },
-                      { cx: 62, cy: 72, r: 1.6 },
-                      { cx: 78, cy: 76, r: 1.8 },
-                      { cx: 92, cy: 80, r: 2 },
-                      { cx: 108, cy: 80, r: 2 },
-                      { cx: 122, cy: 76, r: 1.8 },
-                      { cx: 138, cy: 72, r: 1.6 },
-                      { cx: 58, cy: 86, r: 1.5 },
-                      { cx: 72, cy: 92, r: 1.6 },
-                      { cx: 88, cy: 92, r: 1.6 },
-                      { cx: 100, cy: 98, r: 2.2 },
-                      { cx: 112, cy: 92, r: 1.6 },
-                      { cx: 128, cy: 92, r: 1.6 },
-                      { cx: 142, cy: 86, r: 1.5 },
-                      { cx: 62, cy: 100, r: 1.2 },
-                      { cx: 78, cy: 100, r: 1.4 },
-                      { cx: 122, cy: 100, r: 1.4 },
-                      { cx: 138, cy: 100, r: 1.2 },
+                      { cx: 40, cy: 36, r: 1.1 },
+                      { cx: 46, cy: 40, r: 1.2 },
+                      { cx: 50, cy: 34, r: 1.4 },
+                      { cx: 54, cy: 40, r: 1.2 },
+                      { cx: 60, cy: 36, r: 1.1 },
+                      { cx: 36, cy: 44, r: 1.0 },
+                      { cx: 42, cy: 46, r: 1.0 },
+                      { cx: 50, cy: 44, r: 1.3 },
+                      { cx: 58, cy: 46, r: 1.0 },
+                      { cx: 64, cy: 44, r: 1.0 },
+                      { cx: 34, cy: 52, r: 0.9 },
+                      { cx: 40, cy: 54, r: 1.0 },
+                      { cx: 46, cy: 56, r: 1.0 },
+                      { cx: 54, cy: 56, r: 1.0 },
+                      { cx: 60, cy: 54, r: 1.0 },
+                      { cx: 66, cy: 52, r: 0.9 },
                     ].map((n, i) => (
                       <circle key={i} cx={n.cx} cy={n.cy} r={n.r} fill="#FFFFFF"
-                        style={{ filter: `drop-shadow(0 0 4px #A78BFA)` }}>
+                        style={{ filter: `drop-shadow(0 0 2.5px #A78BFA)` }}>
                         <animate attributeName="opacity"
                           values="0.55;1;0.55"
                           dur={`${1.8 + (i % 5) * 0.4}s`}
@@ -1306,16 +1885,14 @@ export default function FocusApp() {
                   </g>
 
                   {/* Holographic projection base */}
-                  <ellipse cx="100" cy="210" rx="50" ry="3" fill="#A78BFA" opacity="0.5"
-                    style={{ filter: "blur(3px)" }} />
-                  <ellipse cx="100" cy="211" rx="28" ry="1.5" fill="#A78BFA" opacity="0.85"
-                    style={{ filter: "blur(1px)" }} />
+                  <ellipse cx="50" cy="124" rx="22" ry="1.8" fill="#A78BFA" opacity="0.5"
+                    style={{ filter: "blur(2px)" }} />
+                  <ellipse cx="50" cy="125" rx="14" ry="0.9" fill="#A78BFA" opacity="0.85"
+                    style={{ filter: "blur(0.8px)" }} />
                 </svg>
               </div>
             </div>
-
-            <h1 className="text-5xl font-light tracking-tight">focus<span className="text-violet-400">.</span></h1>
-            <p className="text-xs text-white/40 mt-3 tracking-[0.25em] uppercase">Reprenez le contrôle du temps</p>
+            <p className="text-xs text-white/40 mt-3 tracking-[0.25em] uppercase">Reprenez le contrôle de votre journée</p>
           </div>
           <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-3xl p-6 space-y-3">
             <h2 className="text-lg font-light mb-1">Créer un compte</h2>
@@ -1398,7 +1975,7 @@ export default function FocusApp() {
       : activeCustomTrack ? customTracks.find(t => t.id === activeCustomTrack)?.name : null;
     return (
       <div className="fixed inset-0 bg-neutral-950 text-white flex flex-col items-center justify-center z-50 overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         <div className="absolute inset-0 opacity-30 pointer-events-none">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl"
             style={{ background: accent }} />
@@ -1456,7 +2033,7 @@ export default function FocusApp() {
     const med = MEDITATIONS.find(m => m.id === activeMeditation);
     return (
       <div className="fixed inset-0 bg-neutral-950 text-white flex flex-col items-center justify-center z-50 overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         <div className="absolute inset-0 opacity-40 pointer-events-none">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full blur-3xl animate-pulse"
             style={{ background: med.color, animationDuration: "4s" }} />
@@ -1500,12 +2077,12 @@ export default function FocusApp() {
     const maxBar = Math.max(...stats.map(s => s.totalMinutes), 1);
     return (
       <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         <div className="absolute inset-0 opacity-30 pointer-events-none">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full blur-3xl"
             style={{ background: dayTheme.glow }} />
         </div>
-        <div className="relative z-10 max-w-md mx-auto px-6 py-8">
+        <div className="relative z-10 max-w-md mx-auto px-6 pt-14 pb-8">
           <header className="flex items-center justify-between mb-8">
             <button onClick={() => setShowStats(false)}
               className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
@@ -1517,7 +2094,7 @@ export default function FocusApp() {
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4">
               <div className="flex items-center gap-2 text-xs text-white/40 uppercase tracking-wider mb-2">
-                <TrendingUp size={12} /> Respect moyen
+                <TrendingUp size={12} /> Taux d'accomplissement
               </div>
               <p className="text-3xl font-extralight" style={{ color: dayTheme.accent }}>
                 {Math.round(avgCompletion) || 0}<span className="text-lg text-white/40">%</span>
@@ -1565,7 +2142,7 @@ export default function FocusApp() {
             </div>
           </div>
           <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 mb-6">
-            <h3 className="text-xs uppercase tracking-[0.2em] text-white/40 mb-5">Respect par jour</h3>
+            <h3 className="text-xs uppercase tracking-[0.2em] text-white/40 mb-5">Accomplissement par jour</h3>
             <div className="space-y-3">
               {stats.map((s) => (
                 <div key={s.idx} className="flex items-center gap-3">
@@ -1619,12 +2196,12 @@ export default function FocusApp() {
     const draft = profileDraft || user;
     return (
       <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         <div className="absolute inset-0 opacity-30 pointer-events-none">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full blur-3xl"
             style={{ background: dayTheme.glow }} />
         </div>
-        <div className="relative z-10 max-w-md mx-auto px-6 py-8">
+        <div className="relative z-10 max-w-md mx-auto px-6 pt-14 pb-8">
           <header className="flex items-center justify-between mb-8">
             <button onClick={() => { setShowProfile(false); setProfileDraft(null); }}
               className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
@@ -1734,14 +2311,14 @@ export default function FocusApp() {
 
     return (
       <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         {/* Atmospheric glow background */}
         <div className="absolute inset-0 opacity-30 pointer-events-none">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full blur-3xl"
             style={{ background: displayedColor }} />
         </div>
 
-        <div className="relative z-10 max-w-md mx-auto px-6 py-8">
+        <div className="relative z-10 max-w-md mx-auto px-6 pt-14 pb-8">
           {/* Header */}
           <header className="flex items-center justify-between mb-6">
             <button onClick={() => { setShowBrain(false); setBrainPreviewCycle(null); }}
@@ -2039,6 +2616,99 @@ export default function FocusApp() {
   }
 
   // ============================================================
+  // === CUSTOMIZATION PAGE ===
+  // ============================================================
+  if (showCustomization) {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden"
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
+        <div className="absolute inset-0 opacity-30 pointer-events-none">
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full blur-3xl"
+            style={{ background: dayTheme.glow }} />
+        </div>
+
+        <div className="relative z-10 max-w-md mx-auto px-6 pt-14 pb-8">
+          {/* Header */}
+          <header className="flex items-center justify-between mb-6">
+            <button onClick={() => setShowCustomization(false)}
+              className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
+              <ChevronLeft size={18} />
+            </button>
+            <h2 className="text-lg font-light">Personnalisation</h2>
+            <div className="w-10" />
+          </header>
+
+          <p className="text-sm text-white/60 text-center mb-8 leading-relaxed">
+            Choisissez l'ambiance visuelle qui vous ressemble.
+            <br />
+            Chaque thème redéfinit les couleurs des 7 jours de la semaine.
+          </p>
+
+          {/* Theme cards */}
+          <div className="space-y-3 mb-6">
+            {Object.entries(CUSTOM_THEMES).map(([key, theme]) => {
+              const isActive = customTheme === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setCustomTheme(key)}
+                  className="w-full text-left rounded-2xl border p-4 transition hover:scale-[1.01]"
+                  style={{
+                    background: isActive
+                      ? `linear-gradient(135deg, ${theme.colors[0]}20 0%, ${theme.colors[3]}10 100%)`
+                      : "rgba(255,255,255,0.025)",
+                    borderColor: isActive ? theme.colors[0] + "60" : "rgba(255,255,255,0.08)",
+                    boxShadow: isActive ? `0 8px 32px ${theme.colors[0]}30` : "none",
+                  }}
+                >
+                  <div className="flex items-start justify-between mb-2.5">
+                    <div className="flex-1">
+                      <p className="text-base font-medium">{theme.label}</p>
+                      <p className="text-xs text-white/50 mt-0.5">{theme.description}</p>
+                    </div>
+                    {isActive && (
+                      <div className="w-6 h-6 rounded-full flex items-center justify-center"
+                        style={{ background: theme.colors[0] }}>
+                        <Check size={12} className="text-black" strokeWidth={3} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Color preview — 7 dots, one per day */}
+                  <div className="flex gap-1.5 mt-3">
+                    {theme.colors.map((c, i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                        <div className="w-full h-7 rounded-md"
+                          style={{
+                            background: `linear-gradient(135deg, ${c} 0%, ${c}99 100%)`,
+                            boxShadow: isActive ? `0 0 12px ${c}60` : "none",
+                          }} />
+                        <p className="text-[8px] uppercase tracking-wider text-white/40">
+                          {DAY_NAMES[i].short}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-[11px] text-white/30 text-center italic px-4 leading-relaxed">
+            Les thèmes ne modifient pas les couleurs de votre cerveau ni des catégories de tâches —
+            <br />
+            uniquement l'ambiance générale de l'application.
+          </p>
+
+          <p className="text-[10px] text-white/20 text-center mt-8 italic">
+            Plus de personnalisation arrivera dans une prochaine mise à jour.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
   // === SUBSCRIPTION PAGE ===
   // ============================================================
   if (showSubscription || trialExpired) {
@@ -2046,7 +2716,7 @@ export default function FocusApp() {
 
     return (
       <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden"
-        style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+        style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
         <div className="absolute inset-0 opacity-40 pointer-events-none">
           <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-3xl"
             style={{ background: dayTheme.glow }} />
@@ -2054,7 +2724,7 @@ export default function FocusApp() {
             style={{ background: dayTheme.accent }} />
         </div>
 
-        <div className="relative z-10 max-w-md mx-auto px-6 py-8">
+        <div className="relative z-10 max-w-md mx-auto px-6 pt-14 pb-8">
           {/* Header */}
           <header className="flex items-center justify-between mb-8">
             {!forced ? (
@@ -2238,7 +2908,7 @@ export default function FocusApp() {
   // === MAIN APP ===
   // ============================================================
   return (
-    <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden" style={{ fontFamily: "'Söhne', 'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen bg-neutral-950 text-white relative overflow-hidden" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
       <style>{`
         @keyframes float-up { 0% { transform: translateY(0) scale(1); opacity: 0.9; } 100% { transform: translateY(-18px) scale(0.3); opacity: 0; } }
         @keyframes shimmer-edge { 0%, 100% { opacity: 0.6; transform: scaleY(1); } 50% { opacity: 1; transform: scaleY(1.15); } }
@@ -2302,9 +2972,83 @@ export default function FocusApp() {
           0%, 100% { opacity: 0.5; transform: scale(1); }
           50% { opacity: 0.8; transform: scale(1.1); }
         }
+        @keyframes solar-breathe {
+          0%, 100% { opacity: 0.85; transform: scale(1) translateX(-50%); }
+          50% { opacity: 1; transform: scale(1.06) translateX(-47%); }
+        }
+        @keyframes solar-rays {
+          0% { transform: translateX(-50%) rotate(0deg); }
+          100% { transform: translateX(-50%) rotate(360deg); }
+        }
+        @keyframes solar-shimmer {
+          0%, 100% { opacity: 0; }
+          50% { opacity: 1; }
+        }
       `}</style>
 
-      <div className="absolute inset-0 opacity-50 pointer-events-none transition-all duration-1000">
+      {/* ── SOLAR AMBIANCE LAYER (pointer-events-none, behind everything) ── */}
+      {solar.glowIntensity > 0 && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0"
+          style={{ transition: "opacity 4s ease-in-out" }}>
+
+          {/* Primary halo — large diffuse glow at sun position */}
+          <div className="absolute left-1/2 w-[140vw] max-w-[700px]"
+            style={{
+              top: `${solar.sunY - 18}%`,
+              height: "55vw",
+              maxHeight: "340px",
+              transform: "translateX(-50%)",
+              background: solar.bgGradient,
+              transition: "top 180s linear, background 900s linear",
+              filter: "blur(2px)",
+            }} />
+
+          {/* Core glow — smaller, brighter center */}
+          <div
+            className="absolute left-1/2"
+            style={{
+              top: `${solar.sunY}%`,
+              width: "60vw",
+              maxWidth: "320px",
+              height: "32vw",
+              maxHeight: "200px",
+              transform: "translateX(-50%) translateY(-50%)",
+              background: `radial-gradient(ellipse 60% 50% at 50% 50%, ${solar.glowColor} 0%, transparent 70%)`,
+              opacity: solar.coreOpacity,
+              filter: "blur(32px)",
+              transition: "top 180s linear, opacity 900s linear",
+              animation: "solar-breathe 8s ease-in-out infinite",
+            }} />
+
+          {/* Lens flare streak — ultra-thin horizontal line at sun level */}
+          {solar.coreOpacity > 0.15 && (
+            <div className="absolute left-0 right-0"
+              style={{
+                top: `${solar.sunY}%`,
+                height: "1px",
+                background: `linear-gradient(90deg, transparent 0%, ${solar.glowColor} 30%, rgba(255,255,255,${solar.coreOpacity * 0.4}) 50%, ${solar.glowColor} 70%, transparent 100%)`,
+                opacity: solar.coreOpacity * 0.6,
+                filter: "blur(1px)",
+                animation: "solar-shimmer 6s ease-in-out infinite",
+                animationDelay: "2s",
+              }} />
+          )}
+
+          {/* Soft screen-tint — full-screen very subtle warm/cool cast */}
+          <div className="absolute inset-0"
+            style={{
+              background: solar.phase === "dawn" || solar.phase === "sunset"
+                ? `linear-gradient(180deg, rgba(251,146,60,${solar.glowIntensity * 0.07}) 0%, transparent 40%)`
+                : solar.phase === "morning" || solar.phase === "midday"
+                ? `linear-gradient(180deg, rgba(253,230,138,${solar.glowIntensity * 0.05}) 0%, transparent 35%)`
+                : "transparent",
+              transition: "background 900s linear",
+            }} />
+        </div>
+      )}
+
+      {/* Day-theme glow (existing, kept underneath solar) */}
+      <div className="absolute inset-0 opacity-50 pointer-events-none transition-all duration-1000 z-0">
         <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full blur-3xl transition-all duration-1000"
           style={{ background: dayTheme.glow }} />
         <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-3xl opacity-40"
@@ -2321,7 +3065,7 @@ export default function FocusApp() {
         </div>
       )}
 
-      <div className="relative z-10 max-w-md mx-auto px-6 py-8">
+      <div className="relative z-10 max-w-md mx-auto px-6 pt-14 pb-8">
         {/* HEADER — minimal: logo + avatar only */}
         <header className="flex items-start justify-between mb-8">
           <button
@@ -2450,6 +3194,58 @@ export default function FocusApp() {
           <ChevronRight size={14} className="text-white/40 shrink-0" />
         </button>
 
+        {/* === CONFLICT WARNING BANNER === */}
+        {existingConflicts.length > 0 && (
+          <div className="mb-6 rounded-2xl border p-4"
+            style={{
+              background: "linear-gradient(135deg, rgba(248,113,113,0.12) 0%, rgba(248,113,113,0.04) 100%)",
+              borderColor: "rgba(248,113,113,0.4)",
+            }}>
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: "rgba(248,113,113,0.2)", border: "1px solid rgba(248,113,113,0.4)" }}>
+                <span className="text-base">⚠️</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-red-300 mb-1">
+                  {existingConflicts.length} conflit{existingConflicts.length > 1 ? "s" : ""} d'horaire détecté{existingConflicts.length > 1 ? "s" : ""}
+                </p>
+                <div className="space-y-0.5">
+                  {existingConflicts.slice(0, 3).map((c, i) => (
+                    <p key={i} className="text-[11px] text-white/60">
+                      <span style={{ color: c.taskA.color }}>{c.taskA.name}</span>
+                      {" "}({c.taskA.start}-{c.taskA.end}) chevauche{" "}
+                      <span style={{ color: c.taskB.color }}>{c.taskB.name}</span>
+                      {" "}({c.taskB.start}-{c.taskB.end})
+                    </p>
+                  ))}
+                  {existingConflicts.length > 3 && (
+                    <p className="text-[11px] text-white/40 italic">
+                      …et {existingConflicts.length - 3} autre{existingConflicts.length - 3 > 1 ? "s" : ""}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                const ok = autoRepairConflicts();
+                if (!ok) {
+                  setConflictDialog({
+                    type: "repairFailed",
+                    message: "Impossible de réparer automatiquement : le décalage nécessaire dépasse minuit.",
+                  });
+                }
+              }}
+              className="w-full py-2.5 rounded-xl text-xs font-medium transition hover:scale-[1.01]"
+              style={{ background: "rgba(248,113,113,0.25)", color: "#FCA5A5",
+                border: "1px solid rgba(248,113,113,0.4)" }}
+            >
+              Réparer automatiquement
+            </button>
+          </div>
+        )}
+
         {/* WEEK SELECTOR */}
         <div data-tour="week" className="mb-6 -mx-6 px-6">
           <div className="flex items-center justify-between mb-3">
@@ -2460,7 +3256,7 @@ export default function FocusApp() {
                   onClick={() => setSelectedDay(todayIndex())}
                   className="text-[10px] uppercase tracking-[0.15em] text-white/50 hover:text-white transition flex items-center gap-1"
                 >
-                  <span className="w-1 h-1 rounded-full" style={{ background: DAY_THEMES[todayIndex()].accent }} />
+                  <span className="w-1 h-1 rounded-full" style={{ background: activeDayThemes[todayIndex()].accent }} />
                   Aujourd'hui
                 </button>
               )}
@@ -2468,7 +3264,7 @@ export default function FocusApp() {
             </div>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 -mx-6 px-6 snap-x snap-mandatory" style={{ scrollbarWidth: "none" }}>
-            {DAY_THEMES.map((day, idx) => {
+            {activeDayThemes.map((day, idx) => {
               const isSelected = selectedDay === idx;
               const isToday = idx === todayIndex();
               return (
@@ -2748,10 +3544,13 @@ export default function FocusApp() {
                     <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-2">Journée terminée</p>
                     <h2 className="text-2xl font-light text-white/60">Bravo 🎉</h2>
                   </>
-                ) : nextTask ? (
+                ) : nextTask ? (() => {
+                  // Has any task been completed/skipped before? If yes, we're between tasks.
+                  const hasStartedAny = Object.keys(dayCompletions).length > 0;
+                  return (
                   <>
                     <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-2">
-                      Votre journée commence dans
+                      {hasStartedAny ? "Votre prochaine tâche commence dans" : "Votre journée commence dans"}
                     </p>
                     <div className="text-5xl font-extralight font-mono tabular-nums tracking-tight"
                       style={{ color: accent }}>
@@ -2762,7 +3561,8 @@ export default function FocusApp() {
                       <span className="font-mono tabular-nums">{nextTask.start}</span>
                     </p>
                   </>
-                ) : (
+                  );
+                })() : (
                   <>
                     <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-2">Journée terminée</p>
                     <h2 className="text-2xl font-light text-white/60">Bravo 🎉</h2>
@@ -2808,8 +3608,18 @@ export default function FocusApp() {
           <h3 className="text-xs uppercase tracking-[0.2em] text-white/40">Timeline · {dayTheme.name}</h3>
           <button onClick={openAdd}
             data-tour="addBtn"
-            className="flex items-center gap-1.5 text-xs text-white/60 hover:text-white transition">
-            <Plus size={14} /> Ajouter
+            className="relative overflow-hidden flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition hover:scale-[1.05] active:scale-95"
+            style={{
+              background: `linear-gradient(135deg, ${dayTheme.accent}50 0%, ${dayTheme.accent}25 100%)`,
+              border: `1.5px solid ${dayTheme.accent}80`,
+              boxShadow: `0 4px 24px ${dayTheme.accent}40, inset 0 1px 0 rgba(255,255,255,0.20)`,
+              color: "white",
+            }}>
+            {/* Bright inner top highlight */}
+            <span className="absolute inset-x-0 top-0 h-1/2 rounded-full pointer-events-none"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)" }} />
+            <Plus size={15} strokeWidth={2.8} className="relative z-10" />
+            <span className="relative z-10 tracking-wide">Ajouter</span>
           </button>
         </div>
 
@@ -2832,6 +3642,24 @@ export default function FocusApp() {
           </div>
         ) : (
           <div className="space-y-2.5">
+
+            {/* ── Début de la journée ── */}
+            <div className="flex items-center gap-3 py-1 mb-1">
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="w-2 h-2 rounded-full border-2"
+                  style={{ borderColor: dayTheme.accent, background: dayTheme.accent + "40" }} />
+                <div className="w-px flex-1 min-h-[10px]"
+                  style={{ background: `linear-gradient(180deg, ${dayTheme.accent}60 0%, transparent 100%)` }} />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">Début de la journée</p>
+                <p className="text-xs font-mono tabular-nums font-medium mt-0.5"
+                  style={{ color: dayTheme.accent }}>
+                  {sortedTasks[0].start}
+                </p>
+              </div>
+            </div>
+
             {sortedTasks.map((task) => {
               const isCurrent = currentTask?.id === task.id;
               const taskProg = getTaskProgress(task);
@@ -2840,57 +3668,206 @@ export default function FocusApp() {
               const linkedMed = task.meditationId ? MEDITATIONS.find(m => m.id === task.meditationId) : null;
               const cat = task.category ? TASK_CATEGORIES.find(c => c.id === task.category) : null;
               const CatIcon = cat?.icon;
-              const completion = dayCompletions[task.id]; // 'done' | 'skipped' | undefined
+              const completion = dayCompletions[task.id];
+              const isPauseTask = cat?.isPause === true;
 
+              const isDragging = dragState?.taskId === task.id;
+              const isDropTarget = dragState?.overTaskId === task.id;
+
+              // ── PAUSE TASK: completely different card design ──
+              if (isPauseTask) {
+                return (
+                  <div key={task.id}
+                    ref={el => dragRefs.current[task.id] = el}
+                    onMouseDown={(e) => { if (e.button === 0) startLongPress(task, e.clientY); }}
+                    onMouseUp={cancelLongPress}
+                    onMouseLeave={cancelLongPress}
+                    onTouchStart={(e) => startLongPress(task, e.touches[0].clientY)}
+                    onTouchEnd={cancelLongPress}
+                    onTouchCancel={cancelLongPress}
+                    className={`group relative rounded-2xl overflow-hidden transition-all select-none ${
+                      isDragging ? "scale-[1.03] z-20 opacity-90"
+                      : isDropTarget ? "scale-[1.01]"
+                      : isCurrent ? "scale-[1.02]" : ""
+                    }`}
+                    style={{
+                      background: isCurrent
+                        ? "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.06) 100%)"
+                        : "linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%)",
+                      border: `1px solid ${isCurrent ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.10)"}`,
+                      boxShadow: isCurrent ? "0 8px 32px rgba(255,255,255,0.08)" : "none",
+                      opacity: isPast && !isCurrent && !completion ? 0.55 : 1,
+                      cursor: isDragging ? "grabbing" : "grab",
+                    }}>
+
+                    {/* Subtle white progress bar */}
+                    {taskProg > 0 && (
+                      <div className="absolute inset-y-0 left-0 pointer-events-none transition-all"
+                        style={{
+                          width: `${taskProg}%`,
+                          background: "linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.14) 100%)",
+                          transition: "width 1s linear",
+                        }} />
+                    )}
+
+                    <button onClick={() => { if (dragState) return; setExpandedId(isExpanded ? null : task.id); }}
+                      className="relative w-full flex items-center gap-4 px-5 py-4 text-left">
+
+                      {/* Drag handle */}
+                      <div className={`shrink-0 flex flex-col gap-[3px] transition-opacity ${isDragging ? "opacity-50" : "opacity-0 group-hover:opacity-20"}`}>
+                        {[0,1,2].map(r => (
+                          <div key={r} className="flex gap-[3px]">
+                            <div className="w-[3px] h-[3px] rounded-full bg-white/60" />
+                            <div className="w-[3px] h-[3px] rounded-full bg-white/60" />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Moon icon — white circle */}
+                      <div className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center"
+                        style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.18)" }}>
+                        <Moon size={16} className="text-white/80" />
+                      </div>
+
+                      {/* Text */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-white">Pause</h4>
+                            {(completion === "done" || (isPast && !isCurrent && !completion)) && (
+                              <CheckCircle2 size={12} className="text-white/60 shrink-0" />
+                            )}
+                            {completion === "skipped" && <X size={12} className="text-white/30 shrink-0" />}
+                          </div>
+                          <span className="text-xs text-white/40 font-mono tabular-nums whitespace-nowrap">
+                            {task.start} – {task.end}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-white/45 leading-tight italic">
+                          {cat.tagline}
+                        </p>
+                      </div>
+
+                      <ChevronDown size={15} className="text-white/30 shrink-0 transition-transform"
+                        style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0)" }} />
+                    </button>
+
+                    {/* Expanded actions */}
+                    {isExpanded && (
+                      <div className="px-5 pb-4 space-y-2 border-t border-white/8 pt-3">
+                        {task.notes && (
+                          <p className="text-xs text-white/50 italic leading-relaxed mb-3">{task.notes}</p>
+                        )}
+                        {isCurrent && !completion && (
+                          <div className="flex gap-2">
+                            <button onClick={(e) => {
+                                e.stopPropagation();
+                                popupOpenedAtRef.current = null;
+                                popupTriggerKindRef.current = "manual";
+                                setEndTaskPopup(task);
+                              }}
+                              className="flex-1 py-2.5 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center gap-2 transition hover:bg-white/10 text-white/80">
+                              <CheckCircle2 size={14} />
+                              <span className="text-xs font-medium">Terminer</span>
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); openEdit(task); }}
+                              className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] flex items-center justify-center gap-2 transition hover:bg-white/5 text-white/50 hover:text-white/70">
+                              <Pencil size={13} />
+                              <span className="text-xs font-medium">Modifier</span>
+                            </button>
+                          </div>
+                        )}
+                        <div className="flex justify-end gap-1 pt-1">
+                          {!isCurrent && (
+                            <button onClick={(e) => { e.stopPropagation(); openEdit(task); }}
+                              className="w-8 h-8 rounded-full hover:bg-white/5 transition flex items-center justify-center text-white/30 hover:text-white/60">
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                          <button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
+                            className="w-8 h-8 rounded-full hover:bg-red-500/10 transition flex items-center justify-center text-white/30 hover:text-red-400">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── Standard task card ──
               return (
                 <div key={task.id}
-                  className={`group relative rounded-2xl overflow-hidden border transition-all ${
-                    isCurrent ? "border-white/15 scale-[1.02] shadow-2xl"
-                    : isPast ? "border-white/5 opacity-60" : "border-white/5 hover:border-white/10"
+                  ref={el => dragRefs.current[task.id] = el}
+                  onMouseDown={(e) => { if (e.button === 0) startLongPress(task, e.clientY); }}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
+                  onTouchStart={(e) => startLongPress(task, e.touches[0].clientY)}
+                  onTouchEnd={cancelLongPress}
+                  onTouchCancel={cancelLongPress}
+                  className={`group relative rounded-2xl overflow-hidden border transition-all select-none ${
+                    isDragging
+                      ? "scale-[1.03] shadow-2xl z-20 opacity-90"
+                      : isDropTarget
+                      ? "scale-[1.01]"
+                      : isCurrent ? "border-white/15 scale-[1.02] shadow-2xl"
+                      : isPast ? "border-white/5 opacity-60" : "border-white/5 hover:border-white/10"
                   }`}
-                  style={{ background: "rgba(255,255,255,0.025)" }}>
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    // Drop target highlight
+                    ...(isDropTarget ? {
+                      borderColor: task.color + "80",
+                      boxShadow: `0 0 24px ${task.color}40, inset 0 0 0 2px ${task.color}50`,
+                    } : {}),
+                    // Dragging element gets a shadow lift
+                    ...(isDragging ? {
+                      boxShadow: `0 20px 60px rgba(0,0,0,0.6), 0 0 24px ${task.color}40`,
+                      cursor: "grabbing",
+                    } : { cursor: "grab" }),
+                  }}>
                   <div className="absolute inset-y-0 left-0 transition-all pointer-events-none"
                     style={{
                       width: `${taskProg}%`,
-                      background: "linear-gradient(90deg, rgba(52,211,153,0.55) 0%, rgba(251,191,36,0.45) 60%, rgba(248,113,113,0.55) 100%)",
+                      background: `linear-gradient(90deg, ${task.color}15 0%, ${task.color}55 60%, ${task.color}90 100%)`,
                       transition: "width 1s linear",
-                    }} />
-                  {/* Soft color overlay matching task color, subtle */}
-                  <div className="absolute inset-y-0 left-0 transition-all pointer-events-none"
-                    style={{
-                      width: `${taskProg}%`,
-                      background: `linear-gradient(90deg, ${task.color}15 0%, ${task.color}05 100%)`,
-                      transition: "width 1s linear",
-                      mixBlendMode: "overlay",
                     }} />
                   {taskProg > 0 && taskProg < 100 && (
                     <div className="absolute inset-y-0 pointer-events-none"
                       style={{ left: `calc(${taskProg}% - 24px)`, width: "48px", transition: "left 1s linear" }}>
-                      {/* Leading edge color shifts from green→red based on progress */}
-                      {(() => {
-                        // Interpolate between green (#34D399), amber (#FBBF24) and red (#F87171)
-                        let edgeColor = "#34D399";
-                        if (taskProg > 50 && taskProg <= 80) edgeColor = "#FBBF24";
-                        else if (taskProg > 80) edgeColor = "#F87171";
-                        return (
-                          <>
-                            <div className="absolute inset-y-0 right-6 w-px"
-                              style={{ background: edgeColor, boxShadow: `0 0 14px ${edgeColor}, 0 0 28px ${edgeColor}80`,
-                                animation: "shimmer-edge 1.4s ease-in-out infinite" }} />
-                            {[...Array(8)].map((_, i) => (
-                              <span key={i} className="absolute rounded-full"
-                                style={{ width: `${2 + (i % 3)}px`, height: `${2 + (i % 3)}px`, background: edgeColor,
-                                  right: `${4 + (i * 5)}px`, top: `${15 + ((i * 13) % 50)}%`, opacity: 0,
-                                  animation: `float-up ${1.4 + (i * 0.18)}s ease-out infinite`,
-                                  animationDelay: `${i * 0.15}s`, boxShadow: `0 0 6px ${edgeColor}` }} />
-                            ))}
-                          </>
-                        );
-                      })()}
+                      <>
+                        <div className="absolute inset-y-0 right-6 w-px"
+                          style={{ background: task.color, boxShadow: `0 0 14px ${task.color}, 0 0 28px ${task.color}80`,
+                            animation: "shimmer-edge 1.4s ease-in-out infinite" }} />
+                        {[...Array(8)].map((_, i) => (
+                          <span key={i} className="absolute rounded-full"
+                            style={{ width: `${2 + (i % 3)}px`, height: `${2 + (i % 3)}px`, background: task.color,
+                              right: `${4 + (i * 5)}px`, top: `${15 + ((i * 13) % 50)}%`, opacity: 0,
+                              animation: `float-up ${1.4 + (i * 0.18)}s ease-out infinite`,
+                              animationDelay: `${i * 0.15}s`, boxShadow: `0 0 6px ${task.color}` }} />
+                        ))}
+                      </>
                     </div>
                   )}
-                  <button onClick={() => setExpandedId(isExpanded ? null : task.id)}
-                    className="relative w-full flex items-center gap-4 p-4 min-h-[72px] text-left">
+                  <button onClick={() => {
+                      // Don't expand if a drag was in progress
+                      if (dragState) return;
+                      setExpandedId(isExpanded ? null : task.id);
+                    }}
+                    className="relative w-full flex items-center gap-3 p-4 min-h-[72px] text-left">
+
+                    {/* Drag handle — 6 dots, visible on hover or during drag */}
+                    <div className={`shrink-0 flex flex-col gap-[3px] transition-opacity ${
+                      isDragging ? "opacity-70" : "opacity-0 group-hover:opacity-30"
+                    }`}>
+                      {[0,1,2].map(row => (
+                        <div key={row} className="flex gap-[3px]">
+                          <div className="w-[3px] h-[3px] rounded-full bg-white/60" />
+                          <div className="w-[3px] h-[3px] rounded-full bg-white/60" />
+                        </div>
+                      ))}
+                    </div>
+
                     {CatIcon ? (
                       <div className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center"
                         style={{ background: task.color + "25" }}>
@@ -2900,24 +3877,34 @@ export default function FocusApp() {
                       <div className="w-1 h-12 rounded-full shrink-0" style={{ background: task.color }} />
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline justify-between gap-3 mb-1">
-                        <h4 className={`truncate font-medium flex items-center gap-2 ${isCurrent ? "text-white" : "text-white/85"}`}>
+                      {/* Title row — wraps up to 2 lines, never truncates hard */}
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <h4 className={`font-medium flex items-start gap-1.5 leading-snug min-w-0 ${
+                          isCurrent ? "text-white" : "text-white/85"
+                        } ${task.name.length > 28 ? "text-[13px]" : "text-sm"}`}
+                          style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                           {task.name}
-                          {completion === "done" && <CheckCircle2 size={12} className="text-green-400 shrink-0" />}
-                          {completion === "skipped" && <X size={12} className="text-white/30 shrink-0" />}
-                          {task.notes && <StickyNote size={11} className="text-white/30 shrink-0" />}
-                          {linkedMed && <Brain size={11} style={{ color: linkedMed.color }} />}
+                          <span className="flex items-center gap-1 shrink-0 translate-y-[1px]">
+                            {(completion === "done" || (isPast && !isCurrent && !completion)) && (
+                              <CheckCircle2 size={11} className="text-green-400" />
+                            )}
+                            {completion === "skipped" && <X size={11} className="text-white/30" />}
+                            {task.notes && <StickyNote size={10} className="text-white/30" />}
+                            {linkedMed && <Brain size={10} style={{ color: linkedMed.color }} />}
+                          </span>
                         </h4>
-                        <span className="text-xs text-white/50 font-mono tabular-nums whitespace-nowrap">
-                          {task.start} – {task.end}
+                        {/* Time — always on the right, shrink-0 so it never gets squished */}
+                        <span className="text-[11px] text-white/50 font-mono tabular-nums whitespace-nowrap shrink-0 mt-0.5">
+                          {task.start}–{task.end}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-white/40">
                           {completion === "done" ? "✓ Validée"
                           : completion === "skipped" ? "Non terminée"
+                          : (isPast && !isCurrent) ? "✓ Terminée"
                           : task.subcategory ? task.subcategory
-                          : (isPast ? "Terminé" : isCurrent ? "En cours" : "À venir")}
+                          : (isCurrent ? "En cours" : "À venir")}
                         </span>
                         <span className="font-mono tabular-nums font-medium"
                           style={{ color: isCurrent ? task.color : "rgba(255,255,255,0.5)" }}>
@@ -2948,8 +3935,35 @@ export default function FocusApp() {
                         </button>
                       )}
 
-                      {/* Early-finish button — only on the current task */}
+                      {/* Action buttons for current task: Terminer + Modifier (side by side) */}
                       {isCurrent && !completion && (
+                        <div className="flex gap-2">
+                          <button onClick={(e) => {
+                              e.stopPropagation();
+                              popupOpenedAtRef.current = null; // manual = no auto-shift
+                              popupTriggerKindRef.current = "manual";
+                              setEndTaskPopup(task);
+                            }}
+                            className="flex-1 py-2.5 rounded-xl border flex items-center justify-center gap-2 transition hover:scale-[1.01]"
+                            style={{
+                              background: task.color + "15",
+                              borderColor: task.color + "50",
+                              color: task.color,
+                            }}>
+                            <CheckCircle2 size={14} />
+                            <span className="text-xs font-medium">Terminer</span>
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); openEdit(task); }}
+                            className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] flex items-center justify-center gap-2 transition hover:bg-white/5 text-white/70 hover:text-white"
+                            title="Modifier l'horaire ou la durée">
+                            <Pencil size={13} />
+                            <span className="text-xs font-medium">Modifier</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Hidden: original early-finish-only button (replaced by the action row above) */}
+                      {false && isCurrent && !completion && (
                         <button onClick={(e) => {
                             e.stopPropagation();
                             popupOpenedAtRef.current = null; // manual = no auto-shift
@@ -2984,8 +3998,149 @@ export default function FocusApp() {
                 </div>
               );
             })}
+
+            {/* ── Fin de la journée ── */}
+            <div className="flex items-center gap-3 py-1 mt-1">
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="w-px flex-1 min-h-[10px]"
+                  style={{ background: `linear-gradient(180deg, transparent 0%, ${dayTheme.accent}60 100%)` }} />
+                <div className="w-2 h-2 rounded-full border-2"
+                  style={{ borderColor: dayTheme.accent, background: dayTheme.accent + "40" }} />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">Fin de la journée</p>
+                <p className="text-xs font-mono tabular-nums font-medium mt-0.5"
+                  style={{ color: dayTheme.accent }}>
+                  {sortedTasks[sortedTasks.length - 1].end}
+                </p>
+              </div>
+            </div>
+
           </div>
         )}
+        </div>
+
+        {/* ===== FLOATING TASKS — "À programmer · En attente" ===== */}
+        <div className="mt-8 mb-6">
+            {/* Section header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#FB923C" }} />
+                <h3 className="text-xs uppercase tracking-[0.2em] text-white/40">
+                  À programmer · En attente
+                </h3>
+                {floatingTasks.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
+                    style={{ background: "rgba(251,146,60,0.2)", color: "#FB923C" }}>
+                    {floatingTasks.length}
+                  </span>
+                )}
+              </div>
+              <button onClick={openAddFloating}
+                className="text-[11px] text-white/40 hover:text-orange-400 transition flex items-center gap-1">
+                <Plus size={12} /> Ajouter
+              </button>
+            </div>
+
+            {floatingTasks.length === 0 ? (
+              <div className="rounded-2xl border border-dashed p-6 text-center"
+                style={{ borderColor: "rgba(251,146,60,0.25)", background: "rgba(251,146,60,0.03)" }}>
+                <p className="text-xs text-white/40 leading-relaxed">
+                  Aucune tâche en attente.<br/>
+                  <button onClick={openAddFloating}
+                    className="text-orange-400/80 hover:text-orange-400 underline underline-offset-2 transition mt-1">
+                    Ajouter une tâche sans horaire
+                  </button>
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {floatingTasks.map((task) => {
+                  const cat = TASK_CATEGORIES.find(c => c.id === task.category);
+                  const CatIcon = cat?.icon;
+                  return (
+                    <div key={task.id}
+                      className="relative overflow-hidden rounded-2xl border flex items-center gap-3 px-4 py-3.5 group"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(251,146,60,0.10) 0%, rgba(251,146,60,0.04) 100%)",
+                        borderColor: "rgba(251,146,60,0.30)",
+                      }}>
+                      {/* Left orange accent stripe */}
+                      <div className="absolute left-0 inset-y-0 w-0.5 rounded-r-full"
+                        style={{ background: "linear-gradient(180deg, #FB923C, #F97316, #EA580C)" }} />
+
+                      {/* Icon */}
+                      <div className="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center"
+                        style={{ background: "rgba(251,146,60,0.15)", border: "1px solid rgba(251,146,60,0.3)" }}>
+                        {CatIcon
+                          ? <CatIcon size={14} style={{ color: "#FB923C" }} />
+                          : <span className="text-base">🔖</span>}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white/90 truncate">{task.name}</p>
+                        {task.subcategory && (
+                          <p className="text-[11px] text-white/40 truncate">{task.subcategory}</p>
+                        )}
+                        {task.notes && (
+                          <p className="text-[11px] text-white/30 truncate mt-0.5 italic">{task.notes}</p>
+                        )}
+                      </div>
+
+                      {/* Badge */}
+                      <span className="text-[10px] px-2 py-0.5 rounded-full shrink-0"
+                        style={{ background: "rgba(251,146,60,0.15)", color: "#FB923C",
+                          border: "1px solid rgba(251,146,60,0.3)" }}>
+                        En attente
+                      </span>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Planifier → pre-fills scheduled form */}
+                        <button
+                          onClick={() => {
+                            // Copy to scheduled form with prefilled name/category/notes
+                            setFloatingTasks(floatingTasks.filter(t => t.id !== task.id));
+                            setIsFloatingForm(false);
+                            setEditingTask(null);
+                            let suggestedStart = "";
+                            if (sortedTasks.length > 0) {
+                              const lastTask = sortedTasks.reduce((latest, t) =>
+                                toMin(t.end) > toMin(latest.end) ? t : latest, sortedTasks[0]);
+                              suggestedStart = lastTask.end;
+                            }
+                            setTaskForm({
+                              name: task.name, start: suggestedStart, end: "",
+                              notes: task.notes || "", meditationId: null,
+                              category: task.category || null, subcategory: task.subcategory || null,
+                            });
+                            setShowAdd(true);
+                          }}
+                          className="w-8 h-8 rounded-full flex items-center justify-center transition hover:scale-110"
+                          style={{ background: "rgba(251,146,60,0.2)", color: "#FB923C" }}
+                          title="Planifier cette tâche">
+                          <CalendarPlus size={13} />
+                        </button>
+                        <button
+                          onClick={() => openEdit(task, true)}
+                          className="w-8 h-8 rounded-full hover:bg-white/5 flex items-center justify-center transition text-white/30 hover:text-white/60"
+                          title="Modifier">
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={() => setFloatingTasks(floatingTasks.filter(t => t.id !== task.id))}
+                          className="w-8 h-8 rounded-full hover:bg-red-500/10 flex items-center justify-center transition text-white/30 hover:text-red-400"
+                          title="Supprimer">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ===== START DAY BUTTON (only when truly not started — not paused) ===== */}
@@ -3080,6 +4235,15 @@ export default function FocusApp() {
               <Maximize2 size={11} />
               Mode plein écran
             </button>
+
+            {/* Reset day button — only if there are tasks or the day has started */}
+            {(sortedTasks.length > 0 || Object.keys(dayCompletions).length > 0) && (
+              <button onClick={() => setShowResetConfirm(true)}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] text-white/25 hover:text-red-400/70 transition">
+                <RotateCcw size={10} />
+                Réinitialiser la journée
+              </button>
+            )}
           </div>
         )}
 
@@ -3090,10 +4254,35 @@ export default function FocusApp() {
             <div onClick={(e) => e.stopPropagation()}
               className="bg-neutral-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-light mb-1">{editingTask ? "Modifier la tâche" : "Nouvelle tâche"}</h3>
-              <p className="text-xs text-white/40 mb-5">{dayTheme.name}</p>
+              <p className="text-xs text-white/40 mb-4">{dayTheme.name}</p>
 
-              {/* Hint: last task's end time when adding a new task */}
-              {!editingTask && sortedTasks.length > 0 && (() => {
+              {/* === TOGGLE: Avec horaire / Sans horaire === */}
+              {!editingTask && (
+                <div className="flex mb-5 rounded-xl overflow-hidden border border-white/10 bg-white/[0.03]">
+                  <button
+                    onClick={() => setIsFloatingForm(false)}
+                    className="flex-1 py-2.5 text-xs font-medium transition"
+                    style={!isFloatingForm ? {
+                      background: dayTheme.accent + "25",
+                      color: dayTheme.accent,
+                      borderRight: `1px solid ${dayTheme.accent}30`,
+                    } : { color: "rgba(255,255,255,0.4)" }}>
+                    Avec horaire
+                  </button>
+                  <button
+                    onClick={() => setIsFloatingForm(true)}
+                    className="flex-1 py-2.5 text-xs font-medium transition"
+                    style={isFloatingForm ? {
+                      background: "#FB923C25",
+                      color: "#FB923C",
+                    } : { color: "rgba(255,255,255,0.4)" }}>
+                    Sans horaire
+                  </button>
+                </div>
+              )}
+
+              {/* Hint: last task's end time — only for scheduled tasks */}
+              {!editingTask && !isFloatingForm && sortedTasks.length > 0 && (() => {
                 const lastTask = sortedTasks.reduce((latest, t) =>
                   toMin(t.end) > toMin(latest.end) ? t : latest, sortedTasks[0]);
                 return (
@@ -3111,6 +4300,20 @@ export default function FocusApp() {
                   </div>
                 );
               })()}
+
+              {/* Floating task hint */}
+              {isFloatingForm && (
+                <div className="mb-4 px-3.5 py-2.5 rounded-xl flex items-start gap-2.5 border"
+                  style={{ background: "rgba(251,146,60,0.1)", borderColor: "rgba(251,146,60,0.3)" }}>
+                  <span className="text-base shrink-0">🔖</span>
+                  <div className="text-[11px] leading-relaxed">
+                    <p className="text-white/70">Cette tâche n'a pas d'horaire.</p>
+                    <p className="text-white/40 mt-0.5">
+                      Elle apparaîtra dans la section "À programmer" sans impacter votre planning.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <button onClick={() => { setShowCategoryPicker(true); setPickerStep("category"); }}
                 className="w-full mb-4 p-3.5 rounded-xl border flex items-center gap-3 transition hover:bg-white/5"
@@ -3141,7 +4344,7 @@ export default function FocusApp() {
                   <>
                     <Sparkles size={18} className="text-violet-400" />
                     <div className="flex-1 text-left">
-                      <p className="text-sm font-medium text-violet-300">Tasks by Focus</p>
+                      <p className="text-sm font-medium text-violet-300">Tâches prédéfinies</p>
                       <p className="text-[11px] text-white/50">Choisir parmi les catégories prédéfinies</p>
                     </div>
                     <ChevronDown size={14} className="text-white/40 -rotate-90" />
@@ -3159,6 +4362,7 @@ export default function FocusApp() {
                 <input type="text" placeholder="Nom de la tâche (libre)" value={taskForm.name}
                   onChange={(e) => setTaskForm({ ...taskForm, name: e.target.value })}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30" />
+                {!isFloatingForm && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs text-white/40 mb-1 block">Début</label>
@@ -3173,6 +4377,7 @@ export default function FocusApp() {
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-white/30" />
                   </div>
                 </div>
+                )}
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Notes / sous-tâches</label>
                   <textarea placeholder="Ajoute des notes, sous-tâches, rappels..." value={taskForm.notes}
@@ -3200,14 +4405,118 @@ export default function FocusApp() {
               className="bg-neutral-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm max-h-[85vh] overflow-y-auto">
               {pickerStep === "category" ? (
                 <>
+                  {/* === MES TÂCHES (custom reusable templates) === */}
+                  <div className="mb-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full flex items-center justify-center"
+                          style={{ background: "linear-gradient(135deg,#A78BFA,#60A5FA)" }}>
+                          <Plus size={9} className="text-black" strokeWidth={3} />
+                        </div>
+                        <h3 className="text-sm font-medium">Mes tâches</h3>
+                      </div>
+                      <button onClick={openNewTemplate}
+                        className="text-[11px] text-white/50 hover:text-white transition flex items-center gap-1">
+                        <Plus size={11} /> Créer
+                      </button>
+                    </div>
+
+                    {customTaskTemplates.length === 0 ? (
+                      <button onClick={openNewTemplate}
+                        className="w-full py-4 rounded-2xl border border-dashed border-white/10 text-xs text-white/40 hover:text-white/60 hover:border-white/20 transition flex items-center justify-center gap-2">
+                        <Plus size={13} />
+                        Créer une tâche personnalisée réutilisable
+                      </button>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {customTaskTemplates.map((tpl) => {
+                          const iconDef = CUSTOM_TASK_ICONS.find(i => i.key === tpl.iconKey);
+                          const TplIcon = iconDef?.icon || Zap;
+                          return (
+                            <div key={tpl.id} className="relative group">
+                              <button
+                                onClick={() => insertTemplate(tpl)}
+                                className="w-full p-3.5 rounded-2xl border transition hover:scale-[1.02] text-left"
+                                style={{
+                                  background: tpl.color + "12",
+                                  borderColor: tpl.color + "40",
+                                }}>
+                                <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-2"
+                                  style={{ background: tpl.color + "25" }}>
+                                  <TplIcon size={15} style={{ color: tpl.color }} />
+                                </div>
+                                <p className="text-sm font-medium truncate" style={{ color: tpl.color }}>
+                                  {tpl.name}
+                                </p>
+                                <p className="text-[10px] text-white/40 mt-0.5">
+                                  {tpl.durationMin} min
+                                </p>
+                              </button>
+                              {/* Edit / delete mini buttons on hover */}
+                              <div className="absolute top-1.5 right-1.5 gap-0.5 hidden group-hover:flex">
+                                <button onClick={(e) => { e.stopPropagation(); openEditTemplate(tpl); }}
+                                  className="w-6 h-6 rounded-lg bg-black/60 backdrop-blur flex items-center justify-center text-white/60 hover:text-white transition">
+                                  <Pencil size={10} />
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); deleteTemplate(tpl.id); }}
+                                  className="w-6 h-6 rounded-lg bg-black/60 backdrop-blur flex items-center justify-center text-white/40 hover:text-red-400 transition">
+                                  <Trash2 size={10} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {/* Quick add another */}
+                        <button onClick={openNewTemplate}
+                          className="p-3.5 rounded-2xl border border-dashed border-white/10 hover:border-white/20 transition flex flex-col items-center justify-center gap-1 text-white/30 hover:text-white/50">
+                          <Plus size={16} />
+                          <span className="text-[10px]">Nouvelle</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="h-px flex-1 bg-white/8" />
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/30">Prédéfinies</span>
+                    <div className="h-px flex-1 bg-white/8" />
+                  </div>
+
                   <div className="flex items-center gap-2 mb-1">
                     <Sparkles size={14} className="text-violet-400" />
-                    <h3 className="text-lg font-light">Tasks by Focus</h3>
+                    <h3 className="text-lg font-light">Tâches prédéfinies</h3>
                   </div>
                   <p className="text-xs text-white/40 mb-5">Choisis une catégorie</p>
                   <div className="grid grid-cols-2 gap-2">
                     {TASK_CATEGORIES.map((cat) => {
                       const Icon = cat.icon;
+                      // ── Special Pause card ──
+                      if (cat.isPause) {
+                        return (
+                          <button key={cat.id}
+                            onClick={() => { setPickedCategory(cat); setPickerStep("subcategory"); }}
+                            className="col-span-2 p-4 rounded-2xl border transition flex items-center gap-4 hover:scale-[1.01]"
+                            style={{
+                              background: "linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)",
+                              borderColor: "rgba(255,255,255,0.18)",
+                              boxShadow: "0 4px 20px rgba(255,255,255,0.04)",
+                            }}>
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                              style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                              <Moon size={18} className="text-white/80" />
+                            </div>
+                            <div className="flex-1 text-left">
+                              <p className="text-sm font-medium text-white">Pause</p>
+                              <p className="text-[11px] text-white/45 italic leading-snug mt-0.5">
+                                {cat.tagline}
+                              </p>
+                            </div>
+                            <ChevronRight size={14} className="text-white/30 shrink-0" />
+                          </button>
+                        );
+                      }
+                      // ── Standard category card ──
                       return (
                         <button key={cat.id}
                           onClick={() => { setPickedCategory(cat); setPickerStep("subcategory"); }}
@@ -3328,6 +4637,19 @@ export default function FocusApp() {
               </button>
 
               <button
+                onClick={() => { setShowMenu(false); setShowCustomization(true); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition text-left"
+              >
+                <Palette size={15} className="text-white/60" />
+                <span className="text-sm flex-1">Personnalisation</span>
+                <div className="flex gap-0.5">
+                  {CUSTOM_THEMES[customTheme].colors.slice(0, 3).map((c, i) => (
+                    <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: c }} />
+                  ))}
+                </div>
+              </button>
+
+              <button
                 onClick={() => { setShowMenu(false); setShowSubscription(true); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition text-left"
               >
@@ -3413,6 +4735,144 @@ export default function FocusApp() {
               </div>
               <ChevronRight size={14} className="text-white/40 shrink-0" />
             </button>
+          </div>
+        )}
+
+        {/* === SWAP CONFIRMATION TOAST === */}
+        {swapToast && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[199] pointer-events-none">
+            <div className="flex items-center gap-2.5 px-4 py-3 rounded-2xl border backdrop-blur-md"
+              style={{
+                background: "rgba(15,15,20,0.95)",
+                borderColor: "rgba(255,255,255,0.15)",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                animation: "check-pop 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+              }}>
+              <div className="w-5 h-5 rounded-full bg-green-400/20 flex items-center justify-center shrink-0">
+                <Check size={11} className="text-green-400" strokeWidth={3} />
+              </div>
+              <p className="text-xs text-white/80 whitespace-nowrap">
+                <span className="font-medium text-white">{swapToast.nameA}</span>
+                <span className="text-white/40 mx-1.5">↔</span>
+                <span className="font-medium text-white">{swapToast.nameB}</span>
+                <span className="text-white/50 ml-1.5">échangées</span>
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* === DRAG GHOST OVERLAY (follows pointer during drag) === */}
+        {dragState && (() => {
+          const draggingTask = tasks.find(t => t.id === dragState.taskId);
+          if (!draggingTask) return null;
+          const cat = draggingTask.category ? TASK_CATEGORIES.find(c => c.id === draggingTask.category) : null;
+          const GhostIcon = cat?.icon;
+          return (
+            <div
+              className="fixed z-[200] pointer-events-none"
+              style={{
+                top: dragState.currentY - 28,
+                left: "50%",
+                transform: "translateX(-50%)",
+              }}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border backdrop-blur-md shadow-2xl"
+                style={{
+                  background: `linear-gradient(135deg, rgba(15,15,20,0.95) 0%, rgba(20,20,28,0.95) 100%)`,
+                  borderColor: draggingTask.color + "70",
+                  boxShadow: `0 12px 40px rgba(0,0,0,0.6), 0 0 20px ${draggingTask.color}40`,
+                }}>
+                {/* Drag icon */}
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ background: draggingTask.color + "25" }}>
+                  {GhostIcon
+                    ? <GhostIcon size={13} style={{ color: draggingTask.color }} />
+                    : <div className="w-1 h-4 rounded-full" style={{ background: draggingTask.color }} />}
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-white leading-tight">{draggingTask.name}</p>
+                  <p className="text-[10px] font-mono tabular-nums"
+                    style={{ color: draggingTask.color }}>
+                    {draggingTask.start} – {draggingTask.end}
+                  </p>
+                </div>
+                {/* Swap indicator when over a target */}
+                {dragState.overTaskId && (() => {
+                  const targetTask = tasks.find(t => t.id === dragState.overTaskId);
+                  if (!targetTask) return null;
+                  return (
+                    <div className="flex items-center gap-1.5 ml-1 pl-2.5 border-l border-white/10">
+                      <ChevronRight size={10} className="text-white/40" />
+                      <p className="text-[10px] text-white/60 max-w-[80px] truncate">{targetTask.name}</p>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* === TASK TRANSITION OVERLAY (between two tasks) === */}
+        {taskTransition && (
+          <div className="fixed inset-0 z-[88] flex items-center justify-center pointer-events-none">
+            {/* Soft backdrop */}
+            <div className="absolute inset-0"
+              style={{
+                background: `radial-gradient(circle at center, rgba(15,15,20,0.6) 0%, rgba(0,0,0,0.85) 80%)`,
+                animation: "burst-fade 5s ease-out forwards",
+              }} />
+
+            <div className="relative max-w-sm w-full px-8 text-center pointer-events-auto"
+              style={{ animation: "check-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)" }}>
+              {/* Check icon with halo */}
+              <div className="relative w-20 h-20 mx-auto mb-6 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full animate-ping opacity-40"
+                  style={{ background: taskTransition.fromColor }} />
+                <div className="absolute inset-0 rounded-full blur-2xl opacity-60"
+                  style={{ background: taskTransition.fromColor }} />
+                <div className="relative w-16 h-16 rounded-full flex items-center justify-center"
+                  style={{
+                    background: taskTransition.fromColor,
+                    boxShadow: `0 0 40px ${taskTransition.fromColor}, 0 0 80px ${taskTransition.fromColor}60`,
+                  }}>
+                  <Check size={32} strokeWidth={3} className="text-black" />
+                </div>
+              </div>
+
+              {/* Completed task */}
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 mb-1">
+                Tâche terminée
+              </p>
+              <p className="text-xl font-light mb-8" style={{ color: taskTransition.fromColor }}>
+                {taskTransition.fromName}
+              </p>
+
+              {/* Arrow / divider */}
+              <div className="flex items-center justify-center gap-2 mb-6 opacity-60">
+                <div className="h-px w-12" style={{ background: `linear-gradient(90deg, transparent, ${taskTransition.toColor})` }} />
+                <ChevronRight size={14} style={{ color: taskTransition.toColor }} />
+                <div className="h-px w-12" style={{ background: `linear-gradient(90deg, ${taskTransition.toColor}, transparent)` }} />
+              </div>
+
+              {/* Next task */}
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 mb-1">
+                Prochaine tâche
+              </p>
+              <p className="text-2xl font-light mb-1" style={{ color: taskTransition.toColor }}>
+                {taskTransition.toName}
+              </p>
+              <p className="text-xs text-white/40 font-mono tabular-nums">
+                {taskTransition.toStart}
+              </p>
+
+              {/* Skip button */}
+              <button
+                onClick={() => setTaskTransition(null)}
+                className="mt-8 text-[10px] uppercase tracking-[0.2em] text-white/30 hover:text-white/60 transition"
+              >
+                Passer
+              </button>
+            </div>
           </div>
         )}
 
@@ -3791,6 +5251,267 @@ export default function FocusApp() {
           );
         })()}
 
+        {/* === CUSTOM TASK TEMPLATE EDITOR === */}
+        {showCustomTaskEditor && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[65] flex items-end sm:items-center justify-center p-4"
+            onClick={() => setShowCustomTaskEditor(false)}>
+            <div onClick={(e) => e.stopPropagation()}
+              className="bg-neutral-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
+              <h3 className="text-lg font-light mb-1">
+                {editingTemplate ? "Modifier la tâche" : "Nouvelle tâche personnalisée"}
+              </h3>
+              <p className="text-xs text-white/40 mb-5">
+                Cette tâche sera disponible à tout moment dans votre bibliothèque.
+              </p>
+
+              {/* Name */}
+              <div className="mb-4">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2 block">Nom</label>
+                <input
+                  type="text"
+                  placeholder="Ex : Uber Eats, Montage vidéo…"
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30"
+                />
+              </div>
+
+              {/* Duration */}
+              <div className="mb-4">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2 block">
+                  Durée par défaut
+                </label>
+                <div className="relative">
+                  <select
+                    value={templateForm.durationMin}
+                    onChange={(e) => setTemplateForm({ ...templateForm, durationMin: parseInt(e.target.value) })}
+                    className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm focus:outline-none cursor-pointer"
+                    style={{ color: templateForm.color }}
+                  >
+                    {[5,10,15,20,25,30,45,60,90,120].map(m => (
+                      <option key={m} value={m} className="bg-neutral-900 text-white">
+                        {m} minutes
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/40" />
+                </div>
+              </div>
+
+              {/* Icon picker */}
+              <div className="mb-4">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2 block">Icône</label>
+                <div className="grid grid-cols-6 gap-1.5">
+                  {CUSTOM_TASK_ICONS.map(({ key, icon: Icon }) => (
+                    <button key={key}
+                      onClick={() => setTemplateForm({ ...templateForm, iconKey: key })}
+                      className="aspect-square rounded-xl flex items-center justify-center transition hover:scale-110"
+                      style={{
+                        background: templateForm.iconKey === key
+                          ? templateForm.color + "30"
+                          : "rgba(255,255,255,0.04)",
+                        border: `1px solid ${templateForm.iconKey === key
+                          ? templateForm.color + "70"
+                          : "rgba(255,255,255,0.08)"}`,
+                        boxShadow: templateForm.iconKey === key
+                          ? `0 0 12px ${templateForm.color}50`
+                          : "none",
+                      }}>
+                      <Icon size={15} style={{ color: templateForm.iconKey === key ? templateForm.color : "rgba(255,255,255,0.5)" }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Color picker */}
+              <div className="mb-6">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2 block">Couleur</label>
+                <div className="grid grid-cols-10 gap-1.5">
+                  {CUSTOM_TASK_COLORS.map((c) => (
+                    <button key={c}
+                      onClick={() => setTemplateForm({ ...templateForm, color: c })}
+                      className="aspect-square rounded-full transition hover:scale-125"
+                      style={{
+                        background: c,
+                        boxShadow: templateForm.color === c
+                          ? `0 0 0 2px rgba(0,0,0,0.8), 0 0 0 3.5px ${c}`
+                          : "none",
+                        transform: templateForm.color === c ? "scale(1.2)" : undefined,
+                      }} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="mb-5 p-3.5 rounded-2xl border flex items-center gap-3"
+                style={{
+                  background: templateForm.color + "12",
+                  borderColor: templateForm.color + "40",
+                }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: templateForm.color + "25" }}>
+                  {(() => {
+                    const iconDef = CUSTOM_TASK_ICONS.find(i => i.key === templateForm.iconKey);
+                    const PIcon = iconDef?.icon || Zap;
+                    return <PIcon size={18} style={{ color: templateForm.color }} />;
+                  })()}
+                </div>
+                <div>
+                  <p className="text-sm font-medium" style={{ color: templateForm.color }}>
+                    {templateForm.name || "Nom de la tâche"}
+                  </p>
+                  <p className="text-[11px] text-white/40">{templateForm.durationMin} min · Tâche personnalisée</p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => setShowCustomTaskEditor(false)}
+                  className="flex-1 py-3 rounded-xl border border-white/10 text-sm hover:bg-white/5 transition">
+                  Annuler
+                </button>
+                {editingTemplate && (
+                  <button onClick={() => { deleteTemplate(editingTemplate.id); setShowCustomTaskEditor(false); }}
+                    className="w-10 py-3 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 transition flex items-center justify-center">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+                <button onClick={saveTemplate}
+                  disabled={!templateForm.name.trim()}
+                  className="flex-1 py-3 rounded-xl text-sm font-medium transition hover:scale-[1.02] disabled:opacity-40"
+                  style={{ background: templateForm.color, color: "#000" }}>
+                  {editingTemplate ? "Enregistrer" : "Créer"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* === CONFLICT RESOLUTION POPUP === */}
+        {conflictDialog && (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[78] flex items-end sm:items-center justify-center p-4"
+            onClick={() => conflictDialog.type !== "overflow" && setConflictDialog(null)}>
+            <div onClick={(e) => e.stopPropagation()}
+              className="bg-neutral-900 border rounded-3xl p-6 w-full max-w-sm"
+              style={{
+                borderColor: "rgba(248,113,113,0.5)",
+                boxShadow: "0 20px 60px rgba(248,113,113,0.25)",
+              }}>
+              <div className="flex flex-col items-center text-center mb-5">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4 text-2xl"
+                  style={{ background: "rgba(248,113,113,0.15)",
+                    border: "1px solid rgba(248,113,113,0.4)" }}>
+                  ⚠️
+                </div>
+                <h3 className="text-xl font-light mb-2">
+                  {conflictDialog.type === "invalid" && "Horaires invalides"}
+                  {conflictDialog.type === "edit" && "Conflit d'horaire"}
+                  {conflictDialog.type === "fullyCovered" && "Tâche déjà programmée"}
+                  {conflictDialog.type === "overflow" && "Décalage impossible"}
+                  {conflictDialog.type === "repairFailed" && "Réparation impossible"}
+                </h3>
+                <p className="text-sm text-white/60 leading-relaxed">
+                  {conflictDialog.type === "invalid" && conflictDialog.message}
+                  {conflictDialog.type === "edit" && (
+                    <>
+                      Cette modification chevauche {conflictDialog.conflicts.length === 1 ? "la tâche" : "les tâches"}{" "}
+                      <span className="font-medium text-white">
+                        {conflictDialog.conflicts.map(c => c.name).join(", ")}
+                      </span>.
+                      {conflictDialog.overflow
+                        ? " Décaler les tâches suivantes ferait dépasser minuit."
+                        : ` Voulez-vous décaler ${conflictDialog.conflicts.length === 1 ? "cette tâche" : "ces tâches"} ainsi que toutes les suivantes de ${conflictDialog.shiftMin} min ?`}
+                    </>
+                  )}
+                  {conflictDialog.type === "fullyCovered" && (
+                    <>
+                      Le créneau choisi recouvre entièrement{" "}
+                      <span className="font-medium text-white">
+                        {conflictDialog.conflicts.map(c => c.name).join(", ")}
+                      </span>. Modifiez l'horaire ou supprimez la tâche existante d'abord.
+                    </>
+                  )}
+                  {conflictDialog.type === "overflow" && (
+                    <>
+                      L'ajout de cette tâche décalerait les suivantes au-delà de minuit
+                      (décalage de {conflictDialog.shiftMin} min nécessaire). Réduisez la durée ou choisissez un autre créneau.
+                    </>
+                  )}
+                  {conflictDialog.type === "repairFailed" && conflictDialog.message}
+                </p>
+              </div>
+
+              {/* List of impacted tasks (for edit case) */}
+              {conflictDialog.type === "edit" && conflictDialog.conflicts && (
+                <div className="rounded-xl border p-3 mb-4 space-y-1.5"
+                  style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.08)" }}>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-white/40 mb-1.5">
+                    Tâches impactées
+                  </p>
+                  {conflictDialog.conflicts.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.color }} />
+                      <span className="text-xs text-white/80 flex-1">{c.name}</span>
+                      <span className="text-[10px] text-white/40 font-mono tabular-nums">
+                        {c.start} → {c.end}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {/* Edit case: offer cascade option if no overflow */}
+                {conflictDialog.type === "edit" && !conflictDialog.overflow && (
+                  <button
+                    onClick={applyEditWithCascade}
+                    className="w-full py-3.5 rounded-xl text-sm font-medium transition hover:scale-[1.02]"
+                    style={{ background: dayTheme.accent, color: "#000" }}
+                  >
+                    Décaler les tâches suivantes
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setConflictDialog(null)}
+                  className="w-full py-3 rounded-xl text-sm font-medium transition hover:bg-white/5 border border-white/10 text-white/80"
+                >
+                  {conflictDialog.type === "edit" || conflictDialog.type === "fullyCovered" || conflictDialog.type === "overflow"
+                    ? "Annuler"
+                    : "OK"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* === RESET DAY CONFIRMATION === */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[79] flex items-center justify-center p-6"
+            onClick={() => setShowResetConfirm(false)}>
+            <div onClick={(e) => e.stopPropagation()}
+              className="bg-neutral-900 border border-white/10 rounded-3xl p-6 w-full max-w-xs text-center">
+              <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center"
+                style={{ background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)" }}>
+                <RotateCcw size={22} className="text-red-400" />
+              </div>
+              <h3 className="text-lg font-light mb-2">Réinitialiser la journée ?</h3>
+              <p className="text-sm text-white/50 leading-relaxed mb-6">
+                Toutes les tâches du jour seront supprimées et la progression effacée. Cette action est irréversible.
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 py-3 rounded-xl border border-white/10 text-sm hover:bg-white/5 transition">
+                  Annuler
+                </button>
+                <button onClick={resetDay}
+                  className="flex-1 py-3 rounded-xl text-sm font-medium transition bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30">
+                  Réinitialiser
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* === PAUSE CONFIRMATION POPUP === */}
         {showPauseConfirm && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[75] flex items-end sm:items-center justify-center p-4"
@@ -3951,7 +5672,7 @@ export default function FocusApp() {
 
                       <button onClick={() => setShowExtendChoice(true)}
                         className="w-full py-3.5 rounded-xl border border-white/15 text-sm text-white/80 hover:bg-white/5 transition flex items-center justify-center gap-2">
-                        <PlusIcon size={14} />
+                        <Plus size={14} />
                         {isInProgress ? "Pas encore, ajouter du temps" : "Non, ajouter du temps"}
                       </button>
                       <button onClick={() => {
@@ -3977,21 +5698,36 @@ export default function FocusApp() {
                     <p className="text-xs text-white/40 mb-5">
                       Les tâches suivantes seront décalées automatiquement
                     </p>
-                    <div className="grid grid-cols-3 gap-2 mb-4">
-                      {[10, 15, 30, 45, 60, 90].map((min) => (
-                        <button key={min} onClick={() => setExtendMinutes(min)}
-                          className={`py-3 rounded-xl border transition text-sm ${
-                            extendMinutes === min ? "scale-105" : "hover:bg-white/5"
-                          }`}
+
+                    {/* Dropdown selector for minutes */}
+                    <div className="mb-5">
+                      <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2 block">
+                        Durée supplémentaire
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={extendMinutes}
+                          onChange={(e) => setExtendMinutes(parseInt(e.target.value, 10))}
+                          className="w-full appearance-none bg-white/5 border rounded-xl pl-4 pr-10 py-3.5 text-base font-medium focus:outline-none cursor-pointer transition"
                           style={{
-                            background: extendMinutes === min ? endTaskPopup.color + "20" : "rgba(255,255,255,0.03)",
-                            borderColor: extendMinutes === min ? endTaskPopup.color + "60" : "rgba(255,255,255,0.1)",
-                            color: extendMinutes === min ? endTaskPopup.color : "rgba(255,255,255,0.7)",
-                          }}>
-                          +{min} min
-                        </button>
-                      ))}
+                            borderColor: endTaskPopup.color + "50",
+                            color: endTaskPopup.color,
+                          }}
+                        >
+                          {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 75, 90, 105, 120, 150, 180].map((min) => (
+                            <option key={min} value={min} className="bg-neutral-900 text-white">
+                              +{min} minute{min > 1 ? "s" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown
+                          size={16}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none"
+                          style={{ color: endTaskPopup.color }}
+                        />
+                      </div>
                     </div>
+
                     <div className="flex gap-2">
                       <button onClick={() => setShowExtendChoice(false)}
                         className="flex-1 py-3 rounded-xl border border-white/10 text-sm hover:bg-white/5 transition">
@@ -4000,7 +5736,7 @@ export default function FocusApp() {
                       <button onClick={() => extendTask(endTaskPopup, extendMinutes)}
                         className="flex-1 py-3 rounded-xl text-sm font-medium transition hover:scale-[1.02]"
                         style={{ background: endTaskPopup.color, color: "#000" }}>
-                        Ajouter +{extendMinutes} min
+                        Confirmer
                       </button>
                     </div>
                   </>
