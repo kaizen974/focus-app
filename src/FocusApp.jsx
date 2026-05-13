@@ -7,7 +7,7 @@ import {
   Upload, Headphones, Search, Briefcase, Dumbbell, Utensils, BookOpen,
   Bike, Waves, Mountain, Activity, Footprints, Target, ShoppingCart,
   Home, GraduationCap, Palette, Pill, Plane, Users, Phone, Hammer,
-  Check, CalendarPlus, RotateCcw, Plus
+  Check, CalendarPlus, RotateCcw
 } from "lucide-react";
 
 const DAY_NAMES = [
